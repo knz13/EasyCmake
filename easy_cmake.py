@@ -336,7 +336,8 @@ class EasyCmakeApp(QWidget):
         if len(self.sources) == 0:
             QMessageBox.warning(self,"Sources Warning!","Please add at least one source file")
             return
-        
+    
+    
         
         directory = filedialog.askdirectory(initialdir=os.curdir,title="Choose generate location")
         
@@ -353,6 +354,7 @@ class EasyCmakeApp(QWidget):
         source_globs_to_add = []
         source_files = []
         libraries_to_link = []
+        dependencies = []
         
         
         string_to_use = f'''
@@ -387,6 +389,8 @@ CMAKE_ARGS -DINSTALL_DIR=vendor/{repo_name.lower()}
             {arg}
                         '''
                     string_to_use += ")"
+                    dependencies.append(repo_name.upper())
+                    
                 else:
                     string_to_use += f'''
                     
@@ -449,6 +453,13 @@ add_executable(${{PROJECT_NAME}} {" ".join(source_globs_to_add)}
 {" ".join(source_files)})
         
         '''
+        
+        if len(dependencies) > 0:
+            for item in dependencies:
+                
+                string_to_use += f'''
+add_dependencies(${{PROJECT_NAME}} {item})
+                '''
         
         
         
