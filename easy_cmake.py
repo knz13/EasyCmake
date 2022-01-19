@@ -12,6 +12,7 @@ import os
 import git
 
 
+
 @dataclass
 class Repository:
     name : str = ""
@@ -108,6 +109,7 @@ class EasyCmakeApp(QWidget):
     sources : List[str] = field(default_factory=list)
     includes : List[str] = field(default_factory=list)
     repositories : Dict[str,Repository] = field(default_factory=dict)
+    _creating_directory: str = ""
     _repository_window : QWidget = field(default_factory=QWidget)
     _layout : QFormLayout = field(default_factory=QFormLayout)
     _added_modify_parts: bool = False
@@ -116,6 +118,8 @@ class EasyCmakeApp(QWidget):
     
     #main widgets
     
+    _creating_directory_button : QPushButton = field(default_factory=QPushButton)
+    _creating_directory_text : QLabel = field(default_factory=QLabel)
     _executable_name : QLineEdit = field(default_factory=QLineEdit)
     _source_text : QTextEdit = field(default_factory=QTextEdit)
     _includes_text : QTextEdit = field(default_factory=QTextEdit)
@@ -132,6 +136,10 @@ class EasyCmakeApp(QWidget):
         
         
         self.setFixedSize(700,600)
+        
+        self._creating_directory_text.setText("Creating Directory: ")
+        self._creating_directory_button.setText("Modify")
+        self._creating_directory_button.clicked.connect(self._get_creating_dir)
         
         self._cmake_version_text.setValidator(QDoubleValidator())
         
@@ -172,6 +180,9 @@ class EasyCmakeApp(QWidget):
         include_button_layout.addWidget(include_button_add)
         
         #main widget
+        
+        self._layout.addRow(self._creating_directory_text,self._creating_directory_button)
+        
         self._layout.addRow(QLabel("Executable Name*"),self._executable_name)
         
         self._layout.addRow(QLabel("Cmake Version*"),self._cmake_version_text)
@@ -187,9 +198,12 @@ class EasyCmakeApp(QWidget):
         
         self._layout.addRow(self._generate_button)
         
+        
+        
         box = QGroupBox()
         box.setLayout(self._layout)
         scroll = QScrollArea()
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setWidget(box)
         scroll.setWidgetResizable(True)
         
@@ -200,9 +214,22 @@ class EasyCmakeApp(QWidget):
         
         self.setLayout(layout)
         
+    def _get_creating_dir(self):
+        dir = filedialog.askdirectory(initialdir=os.curdir)
+        if dir == "":
+            return
+
+        self._creating_directory = dir
+        self._creating_directory_text.setText("Creating Directory: " + dir)
         
+                
     def _add_source_files(self):
-        files = filedialog.askopenfilenames(initialdir=os.curdir,filetypes=[("C++ file",".cpp"),("C++ file",".cc"),("C++ file",".c")])
+        
+        if self._creating_directory == "":
+            QMessageBox.warning(self,"Warning!","Please choose a valid creating directory")
+            return
+        
+        files = filedialog.askopenfilenames(initialdir=self._creating_directory,filetypes=[("C++ file",".cpp"),("C++ file",".cc"),("C++ file",".c")])
         
         if files == "":
             return
@@ -212,7 +239,12 @@ class EasyCmakeApp(QWidget):
         self._source_text.setText("\n".join(self.sources))
         
     def _add_source_dirs(self):
-        files = filedialog.askdirectory(initialdir=os.curdir)
+        
+        if self._creating_directory == "":
+            QMessageBox.warning(self,"Warning!","Please choose a valid creating directory")
+            return
+        
+        files = filedialog.askdirectory(initialdir=self._creating_directory)
         
         if files == "":
             return
@@ -223,7 +255,11 @@ class EasyCmakeApp(QWidget):
         
     
     def _add_include_dirs(self):
-        files = filedialog.askdirectory(initialdir=os.curdir)
+        if self._creating_directory == "":
+            QMessageBox.warning(self,"Warning!","Please choose a valid creating directory")
+            return
+        
+        files = filedialog.askdirectory(initialdir=self._creating_directory)
         
         if files == "":
             return
@@ -325,15 +361,16 @@ class EasyCmakeApp(QWidget):
         if "\n".join(self.includes) != self._includes_text.toPlainText():
             self.includes = self._includes_text.toPlainText().split()
             
-    def _get_cmake_lists_text(self):
+    def _get_cmake_lists_text(self,directory):
         source_globs_to_add = []
         source_files = []
         libraries_to_link = []
-        dependencies = []
         
         
         string_to_use = f'''
-cmake_minimum_required({self._cmake_version_text.text()})
+#setting cmake version
+        
+cmake_minimum_required(VERSION {self._cmake_version_text.text()})
 
 #adding useful functions
 
@@ -361,7 +398,6 @@ include(FetchContent)
         
 #creating variables for ease of adding libraries
 set(DEPS_TO_BUILD )
-set()
         
 #project name
 project("{self._executable_name.text()}")
@@ -394,9 +430,6 @@ endif()
 
 
                     '''
-                    
-                    
-                    
                     
                 else:
                     string_to_use += f'''
@@ -434,13 +467,19 @@ endif()
         for source_file in self.sources:
             if os.path.isdir(source_file):
                 string_to_use += f'''
-file(GLOB SRC_FILES_{index} ${source_file}/ *.cpp *.cc *.c)'''
+file(GLOB SRC_FILES_{index} {os.path.relpath(source_file,directory)} *.cpp *.cc *.c)'''
                 source_globs_to_add.append(f'''${{SRC_FILES_{index}}}''')
                 index += 1
             else:
                 source_files.append(source_file)
         
+        string_to_use += f'''
         
+#creating executable
+add_executable(${{PROJECT_NAME}} {" ".join(source_globs_to_add)}
+{" ".join([os.path.relpath(directory,x) for x in source_files])})
+        
+        '''
 
         if len(libraries_to_link) > 0:
             string_to_use += f'''
@@ -462,13 +501,7 @@ target_link_libraries(${{PROJECT_NAME}} PRIVATE {item})
                 string_to_use += f'''
 target_include_directories(${{PROJECT_NAME}} PRIVATE {item})'''
         
-        string_to_use += f'''
-        
-#creating executable
-add_executable(${{PROJECT_NAME}} {" ".join(source_globs_to_add)}
-{" ".join(source_files)})
-        
-        '''
+
         
         string_to_use += f'''
 
@@ -485,6 +518,10 @@ endforeach()
             
     def _generate_cmake_lists(self):
         
+        if self._creating_directory == "":
+            QMessageBox.warning(self,"Warning!","Please choose a valid creating directory")
+            return
+        
         if self._executable_name.text() == "":
             QMessageBox.warning(self,"Executable Name Warning!","Please add the executable name")
             return
@@ -499,19 +536,22 @@ endforeach()
     
     
         
-        directory = filedialog.askdirectory(initialdir=os.curdir,title="Choose generate location")
+        directory = self._creating_directory
+        
         
         if os.path.isfile(directory + "/CMakeLists.txt"):
             msg = QMessageBox()
             msg.setWindowTitle("Check")
-            msg.setText("A CMakeLists.txt file was found in the specified directory,\nwould you like to overwrite it?")
+            msg.setText("A CMakeLists.txt file was found in the specified directory,\nare you sure you'd like to overwrite it?")
             msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
             val = msg.exec_()
             if val == QMessageBox.No:
                 return
+            else:
+                os.remove(directory + "/CMakeLists.txt")
                 
         
-        string_to_use = self._get_cmake_lists_text()
+        string_to_use = self._get_cmake_lists_text(directory)
         
         file = open(directory + "/" + "CMakeLists.txt","w")
         
