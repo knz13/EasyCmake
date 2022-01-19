@@ -35,6 +35,7 @@ class RepositoryDialog:
     
     def __post_init__(self):
         self.repo.editingFinished.connect(self._repo_validation_func)
+        self.includes.textChanged.connect(lambda: print(self.libraries.toPlainText()))
 
     def _repo_validation_func(self):
         if not self._check_if_repo_exists():
@@ -91,7 +92,8 @@ class RepositoryDialog:
         else:
             repository.git_tag = self.tag.text()
         repository.should_build = self.should_build.isChecked()
-        repository.includes = self.libraries.toPlainText().split()
+        repository.libraries = self.libraries.toPlainText().split()
+        repository.includes = self.includes.toPlainText().split()
         repository.cmake_args = self.cmake_args.toPlainText().split()
         
         return repository
@@ -323,34 +325,7 @@ class EasyCmakeApp(QWidget):
         if "\n".join(self.includes) != self._includes_text.toPlainText():
             self.includes = self._includes_text.toPlainText().split()
             
-    def _generate_cmake_lists(self):
-        
-        if self._executable_name.text() == "":
-            QMessageBox.warning(self,"Executable Name Warning!","Please add the executable name")
-            return
-        
-        if self._cmake_version_text.text() == "":
-            QMessageBox.warning(self,"Cmake Version Warning!","Please fill the cmake version")
-            return
-        
-        if len(self.sources) == 0:
-            QMessageBox.warning(self,"Sources Warning!","Please add at least one source file")
-            return
-    
-    
-        
-        directory = filedialog.askdirectory(initialdir=os.curdir,title="Choose generate location")
-        
-        if os.path.isfile(directory + "/CMakeLists.txt"):
-            msg = QMessageBox()
-            msg.setWindowTitle("Check")
-            msg.setText("A CMakeLists.txt file was found in the specified directory,\nwould you like to overwrite it?")
-            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-            val = msg.exec_()
-            if val == QMessageBox.No:
-                return
-                
-        
+    def _get_cmake_lists_text(self):
         source_globs_to_add = []
         source_files = []
         libraries_to_link = []
@@ -359,17 +334,37 @@ class EasyCmakeApp(QWidget):
         
         string_to_use = f'''
 cmake_minimum_required({self._cmake_version_text.text()})
+
+#adding useful functions
+
+macro(DIR_IS_EMPTY variable dir_path)
+file(GLOB ${{dir_path}}_check ${{dir_path}})
+
+list(LENGTH ${{dir_path}}_check ${{dir_path}}_len)
+
+if(${{dir_path}}_len EQUAL 0)
+
+set(variable FALSE)
+
+else()
+
+set(variable TRUE)
+
+endif()
+
+endmacro()
+
         
 #adding extra cmake libs
 include(ExternalProject)
 include(FetchContent)
         
 #creating variables for ease of adding libraries
-set(LIBRARIES_TO_BUILD )
+set(DEPS_TO_BUILD )
 set()
         
 #project name
-project("TestProj")
+project("{self._executable_name.text()}")
         
         '''
         if len(self.repositories) > 0:
@@ -377,34 +372,55 @@ project("TestProj")
                 repo = self.repositories[repo_name]
                 if repo.should_build:
                     string_to_use += f'''
-                    
-ExternalProject_Add({repo_name.upper()}
-GIT_REPOSITORY {repo.git_repo}
-GIT_TAG {repo.git_tag}
-CMAKE_ARGS -DINSTALL_DIR=vendor/{repo_name.lower()}
+dir_is_empty({repo_name.lower()}_exists ${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()})
+
+if(NOT ${{{repo_name.lower()}_exists}})
+    ExternalProject_Add({repo_name.upper()}
+    GIT_REPOSITORY {repo.git_repo}
+    GIT_TAG {repo.git_tag}
+    CMAKE_ARGS -DINSTALL_DIR=vendor/{repo_name.lower()}
 
 '''
                     for arg in repo.cmake_args:
                         string_to_use += f'''
             {arg}
                         '''
-                    string_to_use += ")"
-                    dependencies.append(repo_name.upper())
+                    string_to_use += f'''
+    )
+    
+    list(APPEND DEPS_TO_BUILD {repo_name.upper()})
+
+endif()
+
+
+                    '''
+                    
+                    
+                    
                     
                 else:
                     string_to_use += f'''
                     
-FetchContent_Declare({repo_name.upper()}
-GIT_REPOSITORY {repo.git_repo}
-GIT_TAG {repo.git_tag}
-INSTALL_DIR vendor/{repo_name.lower()}
-)
+dir_is_empty({repo_name.lower()}_exists ${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()})
+                    
+                    
+if(NOT ${{{repo_name.lower()}_exists}})
+    FetchContent_Declare({repo_name.upper()}
+    GIT_REPOSITORY {repo.git_repo}
+    GIT_TAG {repo.git_tag}
+    INSTALL_DIR vendor/{repo_name.lower()}
+    )
 
-FetchContent_MakeAvailable({repo_name.upper()})
+    FetchContent_MakeAvailable({repo_name.upper()})
+
+endif()
                     
                     '''
                 for item in repo.includes:
-                    self.includes.append(f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{item}''')
+                    if item == "./":
+                        self.includes.append(f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}''')
+                    else:
+                        self.includes.append(f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{item}''')
                 for lib_file in repo.libraries:
                     lib_name = lib_file[lib_file.rfind("/")+1:]
                     lib_location = lib_file[:lib_file.rfind("/")]
@@ -454,14 +470,48 @@ add_executable(${{PROJECT_NAME}} {" ".join(source_globs_to_add)}
         
         '''
         
-        if len(dependencies) > 0:
-            for item in dependencies:
+        string_to_use += f'''
+
+foreach(X ${{DEPS_TO_BUILD}})
+
+    add_dependencies(${{PROJECT_NAME}} ${{X}})
+
+endforeach()
+
+
+        '''
+        
+        return string_to_use
+            
+    def _generate_cmake_lists(self):
+        
+        if self._executable_name.text() == "":
+            QMessageBox.warning(self,"Executable Name Warning!","Please add the executable name")
+            return
+        
+        if self._cmake_version_text.text() == "":
+            QMessageBox.warning(self,"Cmake Version Warning!","Please fill the cmake version")
+            return
+        
+        if len(self.sources) == 0:
+            QMessageBox.warning(self,"Sources Warning!","Please add at least one source file")
+            return
+    
+    
+        
+        directory = filedialog.askdirectory(initialdir=os.curdir,title="Choose generate location")
+        
+        if os.path.isfile(directory + "/CMakeLists.txt"):
+            msg = QMessageBox()
+            msg.setWindowTitle("Check")
+            msg.setText("A CMakeLists.txt file was found in the specified directory,\nwould you like to overwrite it?")
+            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            val = msg.exec_()
+            if val == QMessageBox.No:
+                return
                 
-                string_to_use += f'''
-add_dependencies(${{PROJECT_NAME}} {item})
-                '''
         
-        
+        string_to_use = self._get_cmake_lists_text()
         
         file = open(directory + "/" + "CMakeLists.txt","w")
         
