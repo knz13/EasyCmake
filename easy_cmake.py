@@ -210,6 +210,7 @@ class EasyCmakeApp(QWidget):
     _creating_directory_button : QPushButton = field(default_factory=QPushButton)
     _creating_directory_text : QLabel = field(default_factory=QLabel)
     _executable_name : QLineEdit = field(default_factory=QLineEdit)
+    _cpp_standard_text : QLineEdit= field(default_factory=QLineEdit)
     _source_text : QTextEdit = field(default_factory=QTextEdit)
     _includes_text : QTextEdit = field(default_factory=QTextEdit)
     _repo_list_widget : QListWidget = field(default_factory=QListWidget)
@@ -230,6 +231,8 @@ class EasyCmakeApp(QWidget):
         self._creating_directory_text.setText("Creating Directory: ")
         self._creating_directory_button.setText("Modify")
         self._creating_directory_button.clicked.connect(self._get_creating_dir)
+        
+        self._cpp_standard_text.setValidator(QIntValidator())
         
         self._cmake_version_text.setValidator(QDoubleValidator())
         
@@ -271,6 +274,8 @@ class EasyCmakeApp(QWidget):
         self._layout.addRow(self._creating_directory_text,self._creating_directory_button)
         
         self._layout.addRow(QLabel("Executable Name*"),self._executable_name)
+        
+        self._layout.addRow(QLabel("C++ Standard"),self._cpp_standard_text)
         
         self._layout.addRow(QLabel("Cmake Version*"),self._cmake_version_text)
         
@@ -426,9 +431,14 @@ class EasyCmakeApp(QWidget):
         
 cmake_minimum_required(VERSION {self._cmake_version_text.text()})
 
+#setting c/cpp standard
+
+set(CMAKE_CXX_STANDARD {self._cpp_standard_text.text()})
+
 #adding useful functions
 
 macro(DIR_IS_EMPTY variable dir_path)
+
 file(GLOB ${{dir_path}}_check ${{dir_path}})
 
 list(LENGTH ${{dir_path}}_check ${{dir_path}}_len)
