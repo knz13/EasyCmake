@@ -5,6 +5,7 @@ import string
 from tracemalloc import start
 from typing import List,Dict
 from urllib.error import HTTPError
+from xml.etree.ElementInclude import include
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import QIntValidator,QDoubleValidator
 from PyQt5.QtCore import Qt
@@ -94,6 +95,13 @@ class RepositoryDialog(QDialog):
             message.exec_()
             return
 
+        if self._repository.git_repo[:8] != "https://":
+                self._repository.git_repo = "https://" + self._repository.git_repo
+       
+        if self._repository.git_tag == "":
+            self._repository.git_tag = "origin/master"
+        
+    
         self.accept()
         
         
@@ -422,6 +430,7 @@ class EasyCmakeApp(QWidget):
     def _get_cmake_lists_text(self,directory):
         source_globs_to_add = []
         source_files = []
+        include_directories = []
         libraries_to_link = []
         any_dependencies = False
         
@@ -431,29 +440,25 @@ class EasyCmakeApp(QWidget):
         
 cmake_minimum_required(VERSION {self._cmake_version_text.text()})
 
-#setting c/cpp standard
-
-set(CMAKE_CXX_STANDARD {self._cpp_standard_text.text()})
-
 #adding useful functions
 
-macro(DIR_IS_EMPTY variable dir_path)
+function(DIR_EXISTS variable dir_path)
 
-file(GLOB ${{dir_path}}_check ${{dir_path}})
+file(GLOB ${{variable}}_check ${{dir_path}}/*)
 
-list(LENGTH ${{dir_path}}_check ${{dir_path}}_len)
+list(LENGTH ${{variable}}_check ${{variable}}_len)
 
-if(${{dir_path}}_len EQUAL 0)
+if(${{${{variable}}_len}} EQUAL 0)
 
-set(variable FALSE)
+set(${{variable}} FALSE PARENT_SCOPE)
 
 else()
 
-set(variable TRUE)
+set(${{variable}} TRUE PARENT_SCOPE)
 
 endif()
 
-endmacro()
+endfunction()
 
         
 #adding extra cmake libs
@@ -472,18 +477,16 @@ project("{self._executable_name.text()}")
                 repo = self.repositories[repo_name]
                 if repo.should_build:
                     string_to_use += f'''
-dir_is_empty({repo_name.lower()}_exists ${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()})
+dir_exists({repo_name.lower()}_exists ${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()})
 
 if(NOT ${{{repo_name.lower()}_exists}})
     ExternalProject_Add({repo_name.upper()}
     GIT_REPOSITORY {repo.git_repo}
     GIT_TAG {repo.git_tag}
-    CMAKE_ARGS -DINSTALL_DIR=vendor/{repo_name.lower()}
-
-'''
+    CMAKE_ARGS -DCMAKE_INSTALL_PREFIX:PATH=${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}'''
                     for arg in repo.cmake_args:
                         string_to_use += f'''
-            {arg}
+                             {arg}
                         '''
                     string_to_use += f'''
     )
@@ -499,14 +502,14 @@ endif()
                 else:
                     string_to_use += f'''
                     
-dir_is_empty({repo_name.lower()}_exists ${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()})
+dir_exists({repo_name.lower()}_exists ${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()})
                     
                     
 if(NOT ${{{repo_name.lower()}_exists}})
     FetchContent_Declare({repo_name.upper()}
     GIT_REPOSITORY {repo.git_repo}
     GIT_TAG {repo.git_tag}
-    INSTALL_DIR vendor/{repo_name.lower()}
+    SOURCE_DIR ${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}
     )
 
     FetchContent_MakeAvailable({repo_name.upper()})
@@ -516,9 +519,9 @@ endif()
                     '''
                 for item in repo.includes:
                     if item == "./":
-                        self.includes.append(f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}''')
+                       include_directories.append(f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}''')
                     else:
-                        self.includes.append(f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{item}''')
+                        include_directories.append(f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{item}''')
                 for lib_file in repo.libraries:
                     lib_name = lib_file[lib_file.rfind("/")+1:]
                     lib_location = lib_file[:lib_file.rfind("/")]
@@ -544,6 +547,10 @@ file(GLOB SRC_FILES_{index} {os.path.relpath(source_file,directory)} *.cpp *.cc 
 add_executable(${{PROJECT_NAME}} {" ".join(source_globs_to_add)}
 {" ".join([os.path.relpath(directory,x) for x in source_files])})
         
+#setting c/cpp standard
+
+set_property(TARGET ${{PROJECT_NAME}} PROPERTY CXX_STANDARD {self._cpp_standard_text.text()})
+        
         '''
 
         if len(libraries_to_link) > 0:
@@ -556,13 +563,15 @@ add_executable(${{PROJECT_NAME}} {" ".join(source_globs_to_add)}
 target_link_libraries(${{PROJECT_NAME}} PRIVATE {item})
                 '''
         
-        if len(self.includes) > 0:
+        include_directories += self.includes
+        
+        if len(include_directories) > 0:
             string_to_use += f'''
 #include directories
             
             '''    
             
-            for item in self.includes:
+            for item in include_directories:
                 string_to_use += f'''
 target_include_directories(${{PROJECT_NAME}} PRIVATE {item})'''
         
