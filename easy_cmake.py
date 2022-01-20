@@ -483,10 +483,10 @@ if(NOT ${{{repo_name.lower()}_exists}})
     ExternalProject_Add({repo_name.upper()}
     GIT_REPOSITORY {repo.git_repo}
     GIT_TAG {repo.git_tag}
-    CMAKE_ARGS -DCMAKE_INSTALL_PREFIX:PATH=${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}'''
+    CMAKE_ARGS  -DCMAKE_INSTALL_PREFIX:PATH=${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}'''
                     for arg in repo.cmake_args:
                         string_to_use += f'''
-                             {arg}
+                {arg}
                         '''
                     string_to_use += f'''
     )
