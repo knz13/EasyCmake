@@ -1,13 +1,17 @@
 from dataclasses import dataclass,field
 from msilib.schema import Icon
+from sqlite3 import Cursor
 import string
 from tracemalloc import start
 from typing import List,Dict
+from urllib.error import HTTPError
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import QIntValidator,QDoubleValidator
 from PyQt5.QtCore import Qt
 from tkinter import filedialog
+from copy import deepcopy
 import sys
+import requests
 import os
 import git
 
@@ -23,8 +27,27 @@ class Repository:
     libraries : List[str] = field(default_factory=list)
     cmake_args : List[str] = field(default_factory=list)
     
-@dataclass
-class RepositoryDialog:
+    def get_as_string(self):
+        mystr = "Name: {}\n".format(self.name)
+        mystr += "Git-Repo: {}\n".format(self.git_repo)
+        mystr += "Git-Tag: {}\n".format(self.git_tag)
+        mystr += "Should-Build: {}\n".format(self.should_build)
+        mystr += "includes:\n"
+        for item in self.includes:
+            mystr += "\t-{}\n".format(item)
+        mystr += "libraries:\n"
+        for item in self.libraries:
+            mystr += "\t-{}\n".format(item)
+        mystr += "cmake args:\n"
+        for item in self.cmake_args:
+            mystr += "\t-{}\n".format(item)
+        
+        return mystr
+    
+
+class RepositoryDialog(QDialog):
+    
+    _repository : Repository
     name : QLineEdit = field(default_factory=QLineEdit)
     repo : QLineEdit = field(default_factory=QLineEdit)
     tag : QLineEdit = field(default_factory=QLineEdit)
@@ -32,28 +55,95 @@ class RepositoryDialog:
     includes : QTextEdit = field(default_factory=QTextEdit)
     libraries : QTextEdit = field(default_factory=QTextEdit)
     cmake_args : QTextEdit = field(default_factory=QTextEdit)
-    rows_used : List[int] = field(default_factory=list)
     
-    def __post_init__(self):
+    
+    def __init__(self,repository : Repository):
+        super().__init__()
+        
+        self._repository = repository
+        self.name = QLineEdit(repository.name)
+        self.repo = QLineEdit(repository.git_repo)
+        self.tag = QLineEdit(repository.git_tag)
+        self.should_build = QCheckBox()
+        self.should_build.setCheckState(repository.should_build)
+        self.includes = QTextEdit("\n".join(repository.includes))
+        self.libraries = QTextEdit("\n".join(repository.libraries))
+        self.cmake_args = QTextEdit("\n".join(repository.cmake_args))
+        self.end_buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        
+        self.name.editingFinished.connect(self._update_name)
         self.repo.editingFinished.connect(self._repo_validation_func)
-        self.includes.textChanged.connect(lambda: print(self.libraries.toPlainText()))
+        self.tag.editingFinished.connect(self._update_tag)
+        self.should_build.clicked.connect(self._update_build)
+        self.includes.textChanged.connect(self._update_includes)
+        self.libraries.textChanged.connect(self._update_libraries)
+        self.cmake_args.textChanged.connect(self._update_cmake_args)
+        self.end_buttons.accepted.connect(self._finishing_check_callback)
+        self.end_buttons.rejected.connect(self.reject)
+        
+        layout = QFormLayout()
+        
+        self._add_to_layout(layout)
+        
+        self.setLayout(layout)
+        
+    def _finishing_check_callback(self):
+        if not self.is_filled():
+            message = QMessageBox(icon=QMessageBox.Warning,text="Please fill all required fields.")
+            message.setWindowTitle("Error in Easy Cmake!")
+            message.exec_()
+            return
+
+        self.accept()
+        
+        
 
     def _repo_validation_func(self):
         if not self._check_if_repo_exists():
             self.repo.setStyleSheet("background-color: red")
         else:
             self.repo.setStyleSheet("")
+            self._repository.git_repo = self.repo.text()
+    
+    def _update_includes(self):
+        self._repository.includes = self.includes.toPlainText().split()
+        
+    def _update_libraries(self):
+        self._repository.libraries = self.libraries.toPlainText().split()
+        
+    def _update_cmake_args(self):
+        self._repository.cmake_args = self.cmake_args.toPlainText().split()  
+    
+    def _update_build(self):
+        self._repository.should_build = self.should_build.isChecked()
+            
+    def _update_tag(self):
+        self._repository.git_tag = self.tag.text()
+            
+    def _update_name(self):
+        self._repository.name = self.name.text()
             
     
     def _check_if_repo_exists(self):
-        git_command = git.cmd.Git()
-        try:
-            git_command.ls_remote(self.repo.text())
-            return True
-        except git.GitCommandError:
-            return False
+        
+        text = self.repo.text()
+        
+        if text[:8] == "https://":
+            text = text[8:]
+        
+        if text[:11] == "github.com/":
+            text = text[11:]
+        
+        
+        response = requests.get("https://api.github.com/repos/" + text).json()
+        if "message" in response:
+            if response["message"] == "Not Found":
+                return False
+        return True
     
-    def add_to_layout(self,layout : QFormLayout):
+        
+    
+    def _add_to_layout(self,layout : QFormLayout):
         layout.addRow("Name*",self.name)
         layout.addRow("Git Repo*",self.repo)
         layout.addRow("Git Tag",self.tag)
@@ -61,12 +151,9 @@ class RepositoryDialog:
         layout.addRow("Include Paths",self.includes)
         layout.addRow("Libraries",self.libraries)
         layout.addRow("Cmake Args",self.cmake_args)
-        layout.addRow(QLabel("* = Required"))
+        layout.addRow(QLabel("* = Required"),self.end_buttons)
         
-    def remove_from_layout(layout : QFormLayout,startingPos):
-            for i in range(8):
-                layout.removeRow(startingPos)
-             
+    
     def set_fields(self,repository: Repository):
         self.name.setText(repository.name)
         self.repo.setText(repository.git_repo)
@@ -99,6 +186,9 @@ class RepositoryDialog:
         
         return repository
     
+
+
+    
     
     
 @dataclass
@@ -110,10 +200,9 @@ class EasyCmakeApp(QWidget):
     includes : List[str] = field(default_factory=list)
     repositories : Dict[str,Repository] = field(default_factory=dict)
     _creating_directory: str = ""
-    _repository_window : QWidget = field(default_factory=QWidget)
+    _repository_window : QDialog = field(default_factory=QDialog)
     _layout : QFormLayout = field(default_factory=QFormLayout)
     _added_modify_parts: bool = False
-    _repo_dialog_for_modifying : RepositoryDialog = field(default_factory=RepositoryDialog)
     _last_item_in_modifying: str = ""
     
     #main widgets
@@ -123,9 +212,10 @@ class EasyCmakeApp(QWidget):
     _executable_name : QLineEdit = field(default_factory=QLineEdit)
     _source_text : QTextEdit = field(default_factory=QTextEdit)
     _includes_text : QTextEdit = field(default_factory=QTextEdit)
-    _repo_combobox : QComboBox = field(default_factory=QComboBox)
+    _repo_list_widget : QListWidget = field(default_factory=QListWidget)
     _generate_button : QPushButton = field(default_factory=QPushButton)
     _cmake_version_text : QLineEdit = field(default_factory=QLineEdit)
+
     
     
     
@@ -149,16 +239,13 @@ class EasyCmakeApp(QWidget):
         self._includes_text.textChanged.connect(self._update_include_text)
         self._includes_text.setMinimumSize(400,0)
         
-        self._repo_combobox.activated.connect(self._repo_combobox_callback)
-        self._repo_combobox.addItem("None")
-        self._repo_combobox.addItem("Add Item")
-        
         
         self._generate_button = QPushButton("Generate")
         self._generate_button.clicked.connect(self._generate_cmake_lists)
         self._generate_button.setMaximumWidth(80)
         
-        
+        self._repo_list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._repo_list_widget.customContextMenuRequested.connect(self._repo_list_context_menu_callback)
         
         #source buttons
         
@@ -193,7 +280,8 @@ class EasyCmakeApp(QWidget):
         self._layout.addRow(QLabel("Include Directories"))
         self._layout.addRow(self._includes_text,include_button_layout)
         
-        self._layout.addRow(QLabel("External Repositories"),self._repo_combobox)
+        
+        self._layout.addRow(QLabel("External Repositories\n(Right click on the white screen on the right for more options)"),self._repo_list_widget)
         
         
         self._layout.addRow(self._generate_button)
@@ -213,6 +301,24 @@ class EasyCmakeApp(QWidget):
         
         
         self.setLayout(layout)
+        
+    
+    def _repo_list_context_menu_callback(self,position):
+        
+        menu = QMenu(self)
+        add_action = menu.addAction("Add")
+        add_action.triggered.connect(self._repo_create_new_callback)
+        
+        if len(self._repo_list_widget.selectedItems()) == 1:
+            modify_action = menu.addAction("Modify")
+            modify_action.triggered.connect(self._repo_modify_callback)
+        if len(self._repo_list_widget.selectedItems()) >= 1:
+            delete_action = menu.addAction("Delete")
+            delete_action.triggered.connect(self._repo_delete_callback)
+        
+        
+        menu.exec_(self._repo_list_widget.mapToGlobal(position))
+        
         
     def _get_creating_dir(self):
         dir = filedialog.askdirectory(initialdir=os.curdir)
@@ -268,88 +374,35 @@ class EasyCmakeApp(QWidget):
         
         self._includes_text.setText("\n".join(self.includes))
         
-    def _repo_combobox_callback(self):
-        current_item = self._repo_combobox.itemText(self._repo_combobox.currentIndex())
-        if current_item == "Add Item":
-            self._repository_window = QWidget()
-            new_window_layout = QFormLayout()
-            
-            repo_dialog = RepositoryDialog()
-            
-            close_dialog = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-            
-            close_dialog.accepted.connect(lambda: self._repository_window_close_callback(close_dialog,repo_dialog))
-            close_dialog.rejected.connect(self._repository_window.close)
-            
-            repo_dialog.add_to_layout(new_window_layout)
-            
-            new_window_layout.addRow(close_dialog)
-            
-            self._repository_window.setLayout(new_window_layout)
-            
-            self._repository_window.show()
-        elif current_item == "None":
-            if self._added_modify_parts:
-                self._added_modify_parts = False
-                
-                self._save_repo_modification()
-                
-                RepositoryDialog.remove_from_layout(self._layout,self._layout.indexOf(self._layout.findChild(QLabel,"External Repositories"))+3)
-                
-                
-            
+    def _repo_create_new_callback(self):
+        repo = Repository()
+        dialog = RepositoryDialog(repo)
         
-        else:
-            
-            if self._added_modify_parts:    
-                if(self._last_item_in_modifying != current_item):
-                    self._save_repo_modification()
-                RepositoryDialog.remove_from_layout(self._layout,self._layout.indexOf(self._layout.findChild(QLabel,"External Repositories"))+3)
-                
-            if not self._added_modify_parts:
-                self._added_modify_parts = True
-            
-                
-            self._repo_dialog_for_modifying = RepositoryDialog()
-            self._repo_dialog_for_modifying.set_fields(self.repositories[current_item])
-            
-            self._repo_dialog_for_modifying.add_to_layout(self._layout)
-            
-            self._last_item_in_modifying = current_item
-            
-        
-            
-            
-    def _save_repo_modification(self):
-        repo = self._repo_dialog_for_modifying.get_results()
-        self.repositories.pop(self._last_item_in_modifying)
-        self.repositories[repo.name] = repo
-        self._add_items_to_repos()
-            
-                
-            
-      
-    def _repository_window_close_callback(self,close_button : QPushButton,repo_dialog : RepositoryDialog):
-            if not repo_dialog.is_filled():
-                message = QMessageBox(icon=QMessageBox.Warning,text="Please fill all required fields.")
-                message.setWindowTitle("Error in Easy Cmake!")
-                message.exec_()
-                return
-            
-            repo = repo_dialog.get_results()
+        if dialog.exec_():
             self.repositories[repo.name] = repo
-            self._repository_window.close()
-            self._add_items_to_repos()
-            
-            
-    def _add_items_to_repos(self):
-        if len(self.repositories) > 0:
-            self._repo_combobox.clear()
-            self._repo_combobox.addItem("None")
-            for item in self.repositories:
-                self._repo_combobox.addItem(item)
-            self._repo_combobox.addItem("Add Item")
-    
+            self._update_repo_list()
+
+    def _repo_modify_callback(self):
+        
+        repo = deepcopy(self.repositories[self._repo_list_widget.selectedItems()[0].text()])
+        repo_name = repo.name
+        dialog = RepositoryDialog(repo)
+        
+        if dialog.exec_():
+            self.repositories.pop(repo_name)
+            self.repositories[repo.name] = repo
+            self._update_repo_list()
+
+    def _repo_delete_callback(self):
+        repo_name = self._repo_list_widget.selectedItems()[0].text()
+        self.repositories.pop(repo_name)
+        self._update_repo_list()
+        
+    def _update_repo_list(self):
+        self._repo_list_widget.clear()
+        for item in self.repositories:
+            self._repo_list_widget.addItem(item)
+
         
         
     def _update_source_text(self):
@@ -365,6 +418,7 @@ class EasyCmakeApp(QWidget):
         source_globs_to_add = []
         source_files = []
         libraries_to_link = []
+        any_dependencies = False
         
         
         string_to_use = f'''
@@ -430,6 +484,7 @@ endif()
 
 
                     '''
+                    any_dependencies = True
                     
                 else:
                     string_to_use += f'''
@@ -502,8 +557,8 @@ target_link_libraries(${{PROJECT_NAME}} PRIVATE {item})
 target_include_directories(${{PROJECT_NAME}} PRIVATE {item})'''
         
 
-        
-        string_to_use += f'''
+        if any_dependencies:
+            string_to_use += f'''
 
 foreach(X ${{DEPS_TO_BUILD}})
 
@@ -512,7 +567,7 @@ foreach(X ${{DEPS_TO_BUILD}})
 endforeach()
 
 
-        '''
+            '''
         
         return string_to_use
             
