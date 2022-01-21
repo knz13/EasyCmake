@@ -2,10 +2,8 @@ from dataclasses import dataclass,field
 from msilib.schema import Icon
 from sqlite3 import Cursor
 import string
-from tracemalloc import start
 from typing import List,Dict
 from urllib.error import HTTPError
-from xml.etree.ElementInclude import include
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import QIntValidator,QDoubleValidator
 from PyQt5.QtCore import Qt
@@ -334,7 +332,7 @@ class EasyCmakeApp(QWidget):
         
         
     def _get_creating_dir(self):
-        dir = filedialog.askdirectory(initialdir=os.curdir)
+        dir = QFileDialog.getExistingDirectory(self,"Choose a Directory",os.curdir)
         if dir == "":
             return
 
@@ -348,12 +346,12 @@ class EasyCmakeApp(QWidget):
             QMessageBox.warning(self,"Warning!","Please choose a valid creating directory")
             return
         
-        files = filedialog.askopenfilenames(initialdir=self._creating_directory,filetypes=[("C++ file",".cpp"),("C++ file",".cc"),("C++ file",".c")])
+        files = QFileDialog.getOpenFileNames(self,"Choose files to add",self._creating_directory,"C/C++ files (*.cpp *.cc *.c)")
         
-        if files == "":
+        if files[0] == []:
             return
         
-        self.sources = self.sources + list(files)
+        self.sources = self.sources + files[0]
         
         self._source_text.setText("\n".join(self.sources))
         
@@ -363,7 +361,7 @@ class EasyCmakeApp(QWidget):
             QMessageBox.warning(self,"Warning!","Please choose a valid creating directory")
             return
         
-        files = filedialog.askdirectory(initialdir=self._creating_directory)
+        files = QFileDialog.getExistingDirectory(self,"Choose a directory",self._creating_directory)
         
         if files == "":
             return
@@ -378,7 +376,7 @@ class EasyCmakeApp(QWidget):
             QMessageBox.warning(self,"Warning!","Please choose a valid creating directory")
             return
         
-        files = filedialog.askdirectory(initialdir=self._creating_directory)
+        files = QFileDialog.getExistingDirectory(self,"Choose a directory to include",self._creating_directory)
         
         if files == "":
             return
@@ -489,7 +487,7 @@ if(NOT ${{{repo_name.lower()}_exists}})
                 {arg}
                         '''
                     string_to_use += f'''
-    )
+)
     
     list(APPEND DEPS_TO_BUILD {repo_name.upper()})
 
@@ -539,13 +537,13 @@ file(GLOB SRC_FILES_{index} {os.path.relpath(source_file,directory)} *.cpp *.cc 
                 source_globs_to_add.append(f'''${{SRC_FILES_{index}}}''')
                 index += 1
             else:
-                source_files.append(source_file)
+                source_files.append(f'''${{PROJECT_SOURCE_DIR}}/''' + os.path.relpath(source_file,directory).replace("\\","/"))
         
         string_to_use += f'''
         
 #creating executable
 add_executable(${{PROJECT_NAME}} {" ".join(source_globs_to_add)}
-{" ".join([os.path.relpath(directory,x) for x in source_files])})
+{" ".join(source_files)})
         
 #setting c/cpp standard
 
