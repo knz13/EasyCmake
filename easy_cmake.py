@@ -9,12 +9,15 @@ from PyQt5.QtGui import QIntValidator,QDoubleValidator
 from PyQt5.QtCore import Qt
 from tkinter import filedialog
 from copy import deepcopy
+import appdirs
+import json
 import sys
+from numpy import save
 import requests
 import os
 import git
-
-
+        
+        
 
 @dataclass
 class Repository:
@@ -205,6 +208,7 @@ class EasyCmakeApp(QWidget):
     sources : List[str] = field(default_factory=list)
     includes : List[str] = field(default_factory=list)
     repositories : Dict[str,Repository] = field(default_factory=dict)
+    _cache_location : str = ""
     _creating_directory: str = ""
     _repository_window : QDialog = field(default_factory=QDialog)
     _layout : QFormLayout = field(default_factory=QFormLayout)
@@ -231,7 +235,9 @@ class EasyCmakeApp(QWidget):
     def __post_init__(self):
         super().__init__()
         
+        self._cache_location = os.getcwd().replace("\\","/") + "/cache.json"
         
+        self.setWindowTitle("Easy Cmake")
         self.setFixedSize(700,600)
         
         self._creating_directory_text.setText("Creating Directory: ")
@@ -337,8 +343,11 @@ class EasyCmakeApp(QWidget):
             return
 
         self._creating_directory = dir
+        
+        
         self._creating_directory_text.setText("Creating Directory: " + dir)
         
+        self._check_if_creating_dir_in_cache()
                 
     def _add_source_files(self):
         
@@ -587,6 +596,121 @@ endforeach()
             '''
         
         return string_to_use
+    
+    def _check_if_creating_dir_in_cache(self):
+        
+        if not os.path.exists(self._cache_location):
+            file = open(self._cache_location,"x")
+            file.close()
+            return
+        
+        file = open(self._cache_location,"r")
+        try:
+            saved_files_dict = json.load(file)
+            
+        except json.JSONDecodeError:
+            file.close()
+            return
+            
+            
+        file.close()
+        
+        
+        
+        
+        if self._creating_directory in saved_files_dict:
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Question)
+            msg.setWindowTitle("Creating Directory Conflict")
+            msg.setText("An EasyCmake instance was already used on this directory,\nWould you like to load its settings?")
+            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            
+            exec_code = msg.exec_()
+            
+            if exec_code == QMessageBox.No:
+                return
+        else:
+            return
+            
+        my_settings = saved_files_dict[self._creating_directory]    
+        
+        self._executable_name.setText(my_settings["executable_name"])
+        self._cpp_standard_text.setText(my_settings["cpp_version"])
+        self._cmake_version_text.setText(my_settings["cmake_version"])
+        self._source_text.setText("\n".join(my_settings["sources"]))
+        self._includes_text.setText("\n".join(my_settings["includes"]))
+        
+        for item in my_settings["repositories"]:
+            repo = Repository()
+            repo.name = item
+            repo.git_repo = my_settings["repositories"][item]["repo"]
+            repo.git_tag = my_settings["repositories"][item]["tag"]
+            repo.should_build = my_settings["repositories"][item]["should_build"]
+            repo.includes = my_settings["repositories"][item]["includes"]
+            repo.libraries = my_settings["repositories"][item]["libraries"]
+            repo.cmake_args = my_settings["repositories"][item]["cmake_args"]
+            
+            self.repositories[item] = repo
+            
+            self._repo_list_widget.clear()
+            self._repo_list_widget.addItem(item)
+            
+    
+    def _save_to_cache(self):
+        
+        saving_dict = {
+            "executable_name":self._executable_name.text(),
+            "cpp_version":self._cpp_standard_text.text(),
+            "cmake_version":self._cmake_version_text.text(),
+            "sources":self.sources,
+            "includes":self.includes,
+            "repositories":{}
+        }
+        
+        for item in self.repositories:
+            saving_dict["repositories"][item] = {
+                "repo":self.repositories[item].git_repo,
+                "tag":self.repositories[item].git_tag,
+                "should_build":self.repositories[item].should_build,
+                "includes":self.repositories[item].includes,
+                "libraries":self.repositories[item].libraries,
+                "cmake_args":self.repositories[item].cmake_args
+            }
+        
+        file = open(self._cache_location,"r")
+        
+        try:
+            current_dict = json.load(file)
+            
+            current_dict[self._creating_directory] = saving_dict
+            
+            file.close()
+            
+             
+            file = open(self._cache_location,"w")
+            
+            file.write(json.dumps(current_dict))
+            
+            file.close()
+            
+        
+        except json.JSONDecodeError:
+            
+            current_dict = {}
+            
+            current_dict[self._creating_directory] = saving_dict
+            
+            
+            file.close()
+            
+            
+            file = open(self._cache_location,"w")
+            
+            file.write(json.dumps(current_dict))
+            
+            file.close()
+        
+        
             
     def _generate_cmake_lists(self):
         
@@ -633,14 +757,15 @@ endforeach()
         file.close()
         
         
+        self._save_to_cache()
+        
+        
         QMessageBox.warning(self,"Finish","Writing Done!")
 
         
     
 
-        
 
-    
 
 application = QApplication(sys.argv)
         
