@@ -29,6 +29,11 @@ class Repository:
     libraries : List[str] = field(default_factory=list)
     cmake_args : List[str] = field(default_factory=list)
     
+    #advanced 
+    
+    
+    
+    
     def get_as_string(self):
         mystr = "Name: {}\n".format(self.name)
         mystr += "Git-Repo: {}\n".format(self.git_repo)
@@ -43,6 +48,8 @@ class Repository:
         mystr += "cmake args:\n"
         for item in self.cmake_args:
             mystr += "\t-{}\n".format(item)
+            
+        mystr += "source_subdir: {}\n".format(self.source_subdir)
         
         return mystr
     
@@ -68,9 +75,15 @@ class RepositoryDialog(QDialog):
         self.tag = QLineEdit(repository.git_tag)
         self.should_build = QCheckBox()
         self.should_build.setCheckState(repository.should_build)
-        self.includes = QTextEdit("\n".join(repository.includes))
-        self.libraries = QTextEdit("\n".join(repository.libraries))
-        self.cmake_args = QTextEdit("\n".join(repository.cmake_args))
+        self.includes = QTextEdit()
+        self.includes.setText("\n".join(repository.includes))
+        
+        self.libraries = QTextEdit()
+        self.libraries.setText("\n".join(repository.libraries))
+        
+        self.cmake_args = QTextEdit()
+        self.cmake_args.setText("\n".join(repository.cmake_args))
+        
         self.end_buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         
         self.name.editingFinished.connect(self._update_name)
@@ -108,11 +121,7 @@ class RepositoryDialog(QDialog):
         
 
     def _repo_validation_func(self):
-        if not self._check_if_repo_exists():
-            self.repo.setStyleSheet("background-color: red")
-        else:
-            self.repo.setStyleSheet("")
-            self._repository.git_repo = self.repo.text()
+        self._repository.git_repo = self.repo.text()
     
     def _update_includes(self):
         self._repository.includes = self.includes.toPlainText().split()
@@ -220,7 +229,7 @@ class EasyCmakeApp(QWidget):
     _creating_directory_button : QPushButton = field(default_factory=QPushButton)
     _creating_directory_text : QLabel = field(default_factory=QLabel)
     _executable_name : QLineEdit = field(default_factory=QLineEdit)
-    _cpp_standard_text : QLineEdit= field(default_factory=QLineEdit)
+    _cpp_standard_text : QComboBox= field(default_factory=QComboBox)
     _source_text : QTextEdit = field(default_factory=QTextEdit)
     _includes_text : QTextEdit = field(default_factory=QTextEdit)
     _repo_list_widget : QListWidget = field(default_factory=QListWidget)
@@ -244,7 +253,12 @@ class EasyCmakeApp(QWidget):
         self._creating_directory_button.setText("Modify")
         self._creating_directory_button.clicked.connect(self._get_creating_dir)
         
-        self._cpp_standard_text.setValidator(QIntValidator())
+        self._cpp_standard_text.addItem("C++20")
+        self._cpp_standard_text.addItem("C++17")
+        self._cpp_standard_text.addItem("C++14")
+        self._cpp_standard_text.addItem("C++11")
+        self._cpp_standard_text.addItem("C++03")
+        self._cpp_standard_text.addItem("C++98")
         
         self._cmake_version_text.setValidator(QDoubleValidator())
         
@@ -530,9 +544,14 @@ endif()
                     else:
                         include_directories.append(f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{item}''')
                 for lib_file in repo.libraries:
+                    
                     lib_name = lib_file[lib_file.rfind("/")+1:]
                     lib_location = lib_file[:lib_file.rfind("/")]
-                    libraries_to_link.append(f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{lib_location}/${{CMAKE_STATIC_LIBRARY_PREFIX}}{lib_name}${{CMAKE_STATIC_LIBRARY_SUFFIX}}''')
+                    if lib_file[len(lib_file) - 1] == "*":
+                        lib_name = lib_name[:len(lib_name)-1]
+                        libraries_to_link.append(f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{lib_location}/${{CMAKE_STATIC_LIBRARY_PREFIX}}{lib_name}$<IF:$<CONFIG:Debug>,d,"">${{CMAKE_STATIC_LIBRARY_SUFFIX}}''')
+                    else:
+                        libraries_to_link.append(f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{lib_location}/${{CMAKE_STATIC_LIBRARY_PREFIX}}{lib_name}${{CMAKE_STATIC_LIBRARY_SUFFIX}}''')
                     
                     
                     
@@ -556,7 +575,7 @@ add_executable(${{PROJECT_NAME}} {" ".join(source_globs_to_add)}
         
 #setting c/cpp standard
 
-set_property(TARGET ${{PROJECT_NAME}} PROPERTY CXX_STANDARD {self._cpp_standard_text.text()})
+set_property(TARGET ${{PROJECT_NAME}} PROPERTY CXX_STANDARD {self._cpp_standard_text.currentText()[3:]})
         
         '''
 
@@ -570,7 +589,7 @@ set_property(TARGET ${{PROJECT_NAME}} PROPERTY CXX_STANDARD {self._cpp_standard_
 target_link_libraries(${{PROJECT_NAME}} PRIVATE {item})
                 '''
         
-        include_directories += self.includes
+        include_directories += [f'''${{PROJECT_SOURCE_DIR}}/{os.path.relpath(i,directory)}''' for i in self.includes]
         
         if len(include_directories) > 0:
             string_to_use += f'''
@@ -635,11 +654,12 @@ endforeach()
         my_settings = saved_files_dict[self._creating_directory]    
         
         self._executable_name.setText(my_settings["executable_name"])
-        self._cpp_standard_text.setText(my_settings["cpp_version"])
+        self._cpp_standard_text.setCurrentIndex(self._cpp_standard_text.findText(my_settings["cpp_version"]))
         self._cmake_version_text.setText(my_settings["cmake_version"])
         self._source_text.setText("\n".join(my_settings["sources"]))
         self._includes_text.setText("\n".join(my_settings["includes"]))
         
+        self._repo_list_widget.clear()
         for item in my_settings["repositories"]:
             repo = Repository()
             repo.name = item
@@ -652,7 +672,7 @@ endforeach()
             
             self.repositories[item] = repo
             
-            self._repo_list_widget.clear()
+            
             self._repo_list_widget.addItem(item)
             
     
@@ -660,7 +680,7 @@ endforeach()
         
         saving_dict = {
             "executable_name":self._executable_name.text(),
-            "cpp_version":self._cpp_standard_text.text(),
+            "cpp_version":self._cpp_standard_text.currentText(),
             "cmake_version":self._cmake_version_text.text(),
             "sources":self.sources,
             "includes":self.includes,
