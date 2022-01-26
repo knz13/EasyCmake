@@ -1,2 +1,5 @@
 cache.json
 .vscode
+build
+__pycache__
+installer.py

@@ -12,7 +12,6 @@ from copy import deepcopy
 import appdirs
 import json
 import sys
-from numpy import save
 import requests
 import os
 import git
@@ -452,7 +451,7 @@ class EasyCmakeApp(QWidget):
         source_globs_to_add = []
         source_files = []
         include_directories = []
-        libraries_to_link = []
+        libraries_to_link = {}
         any_dependencies = False
         
         
@@ -496,6 +495,23 @@ project("{self._executable_name.text()}")
         if len(self.repositories) > 0:
             for repo_name in self.repositories:
                 repo = self.repositories[repo_name]
+                library_locations = []
+                for item in repo.includes:
+                    if item == "./":
+                       include_directories.append(f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}''')
+                    else:
+                        include_directories.append(f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{item}''')
+                for lib_file in repo.libraries:
+                    
+                    lib_name = lib_file[lib_file.rfind("/")+1:]
+                    lib_location = lib_file[:lib_file.rfind("/")]
+                    if lib_file[len(lib_file) - 1] == "*":
+                        lib_name = lib_name[:len(lib_name)-1]
+                        libraries_to_link[repo_name] = f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{lib_location}/${{CMAKE_STATIC_LIBRARY_PREFIX}}{lib_name}$<IF:$<CONFIG:Debug>,d,"">${{CMAKE_STATIC_LIBRARY_SUFFIX}}'''
+                    else:
+                        libraries_to_link[repo_name] = f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{lib_location}/${{CMAKE_STATIC_LIBRARY_PREFIX}}{lib_name}${{CMAKE_STATIC_LIBRARY_SUFFIX}}'''
+                    library_locations.append(libraries_to_link[repo_name])
+                
                 if repo.should_build:
                     string_to_use += f'''
 dir_exists({repo_name.lower()}_exists ${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()})
@@ -510,6 +526,7 @@ if(NOT ${{{repo_name.lower()}_exists}})
                 {arg}
                         '''
                     string_to_use += f'''
+    BUILD_BYPRODUCTS {" ".join(library_locations)}
 )
     
     list(APPEND DEPS_TO_BUILD {repo_name.upper()})
@@ -538,30 +555,13 @@ if(NOT ${{{repo_name.lower()}_exists}})
 endif()
                     
                     '''
-                for item in repo.includes:
-                    if item == "./":
-                       include_directories.append(f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}''')
-                    else:
-                        include_directories.append(f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{item}''')
-                for lib_file in repo.libraries:
                     
-                    lib_name = lib_file[lib_file.rfind("/")+1:]
-                    lib_location = lib_file[:lib_file.rfind("/")]
-                    if lib_file[len(lib_file) - 1] == "*":
-                        lib_name = lib_name[:len(lib_name)-1]
-                        libraries_to_link.append(f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{lib_location}/${{CMAKE_STATIC_LIBRARY_PREFIX}}{lib_name}$<IF:$<CONFIG:Debug>,d,"">${{CMAKE_STATIC_LIBRARY_SUFFIX}}''')
-                    else:
-                        libraries_to_link.append(f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{lib_location}/${{CMAKE_STATIC_LIBRARY_PREFIX}}{lib_name}${{CMAKE_STATIC_LIBRARY_SUFFIX}}''')
-                    
-                    
-                    
-        
-        
         index = 1
         for source_file in self.sources:
             if os.path.isdir(source_file):
+                path = os.path.relpath(source_file,directory).replace("\\","/")
                 string_to_use += f'''
-file(GLOB SRC_FILES_{index} {os.path.relpath(source_file,directory)} *.cpp *.cc *.c)'''
+file(GLOB SRC_FILES_{index} ${{PROJECT_SOURCE_DIR}}/{path} *.cpp *.cc *.c)'''
                 source_globs_to_add.append(f'''${{SRC_FILES_{index}}}''')
                 index += 1
             else:
@@ -578,6 +578,19 @@ add_executable(${{PROJECT_NAME}} {" ".join(source_globs_to_add)}
 set_property(TARGET ${{PROJECT_NAME}} PROPERTY CXX_STANDARD {self._cpp_standard_text.currentText()[3:]})
         
         '''
+        
+        if any_dependencies:
+            string_to_use += f'''
+#adding dependencies
+
+foreach(X ${{DEPS_TO_BUILD}})
+
+    add_dependencies(${{PROJECT_NAME}} ${{X}})
+
+endforeach()
+
+
+            '''
 
         if len(libraries_to_link) > 0:
             string_to_use += f'''
@@ -586,7 +599,10 @@ set_property(TARGET ${{PROJECT_NAME}} PROPERTY CXX_STANDARD {self._cpp_standard_
             
             for item in libraries_to_link:
                 string_to_use += f'''
-target_link_libraries(${{PROJECT_NAME}} PRIVATE {item})
+                
+#linking for {item}...
+
+target_link_libraries(${{PROJECT_NAME}} PRIVATE {libraries_to_link[item]})
                 '''
         
         include_directories += [f'''${{PROJECT_SOURCE_DIR}}/{os.path.relpath(i,directory)}''' for i in self.includes]
@@ -601,18 +617,6 @@ target_link_libraries(${{PROJECT_NAME}} PRIVATE {item})
                 string_to_use += f'''
 target_include_directories(${{PROJECT_NAME}} PRIVATE {item})'''
         
-
-        if any_dependencies:
-            string_to_use += f'''
-
-foreach(X ${{DEPS_TO_BUILD}})
-
-    add_dependencies(${{PROJECT_NAME}} ${{X}})
-
-endforeach()
-
-
-            '''
         
         return string_to_use
     
