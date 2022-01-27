@@ -567,11 +567,19 @@ file(GLOB SRC_FILES_{index} ${{PROJECT_SOURCE_DIR}}/{path} *.cpp *.cc *.c)'''
             else:
                 source_files.append(f'''${{PROJECT_SOURCE_DIR}}/''' + os.path.relpath(source_file,directory).replace("\\","/"))
         
+        source_files_string = "\n\t".join(source_files)
+        source_file_globs = "\n\t".join(source_globs_to_add)
         string_to_use += f'''
         
 #creating executable
-add_executable(${{PROJECT_NAME}} {" ".join(source_globs_to_add)}
-{" ".join(source_files)})
+add_executable(${{PROJECT_NAME}} 
+    
+    #source globs...
+    {source_file_globs}
+    
+    #source files...
+    {source_files_string}
+)
         
 #setting c/cpp standard
 
