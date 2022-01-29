@@ -7,11 +7,8 @@ from copy import deepcopy
 import json
 import sys
 import os
-
-from git import Repo
 from repository import*
 from installed_packages import *
-from cmakelist_creation import *
 
 
 @dataclass
@@ -21,7 +18,7 @@ class EasyCmakeApp(QWidget):
     
     sources : List[str] = field(default_factory=list)
     includes : List[str] = field(default_factory=list)
-    list_of_external_repo_names: Dict[str,str] = field(default_factory=list)
+    list_of_external_repo_names: Dict[str,str] = field(default_factory=dict)
     
     installed_packages: Dict[str,InstalledPackage] = field(default_factory=dict)
     repositories : Dict[str,Repository] = field(default_factory=dict)
@@ -55,13 +52,15 @@ class EasyCmakeApp(QWidget):
     def __post_init__(self):
         super().__init__()
         
-        self._cache_location = os.getcwd().replace("\\","/") + "/cache.json"
-        self._instance_cache_location = os.getcwd().replace("\\","/") + "/instance_cache.json"
+        
+        current_dir = os.path.normpath(os.getcwd()).replace("\\","/")
+        self._cache_location = current_dir + "/cache.json"
+        self._instance_cache_location = current_dir + "/instance_cache.json"
         
         self.setWindowTitle("Easy Cmake")
         self.setFixedSize(700,600)
         
-        self._creating_directory_text.setText("Creating Directory: ")
+        self._creating_directory_text.setText(f'''Creating Directory: {current_dir}''')
         self._creating_directory_button.setText("Modify")
         self._creating_directory_button.clicked.connect(self._get_creating_dir)
         
@@ -82,7 +81,7 @@ class EasyCmakeApp(QWidget):
         
         
         self._generate_button = QPushButton("Generate")
-        self._generate_button.clicked.connect(lambda: generate_cmake_lists(self))
+        self._generate_button.clicked.connect(self._generate_cmake_lists)
         self._generate_button.setMaximumWidth(80)
         
         self._repo_list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -310,6 +309,7 @@ class EasyCmakeApp(QWidget):
             this_item = QListWidgetItem()
             this_item.setText(item)
             this_item.setToolTip(self.list_of_external_repo_names[item])
+            self._repo_list_widget.addItem(this_item)
             
 
         
@@ -392,9 +392,11 @@ class EasyCmakeApp(QWidget):
         for item in my_settings["installed_packages"]:
             installed_package = InstalledPackage()
             installed_package.name = item
+            installed_package.required = my_settings["installed_packages"][item]["required"]
             installed_package.includes = my_settings["installed_packages"][item]["includes"]
             installed_package.libraries = my_settings["installed_packages"][item]["libraries"]
            
+            self.installed_packages[item] = installed_package
             self.list_of_external_repo_names[item] = "package"
            
         self._update_repo_list()
@@ -428,6 +430,7 @@ class EasyCmakeApp(QWidget):
             installed_package = self.installed_packages[item]
             saving_dict["installed_packages"][item] = {
                 "package_name":installed_package.name,
+                "required":installed_package.required,
                 "includes":installed_package.includes,
                 "libraries":installed_package.libraries
             }
@@ -465,4 +468,284 @@ class EasyCmakeApp(QWidget):
             
             file.close()
             
+    def _get_cmake_lists_text(self,directory : str):
+        source_globs_to_add = []
+        source_files = []
+        include_directories = []
+        libraries_to_link = {}
+        any_dependencies = False
+        
+        
+        string_to_use = f'''
+#setting cmake version
+
+cmake_minimum_required(VERSION {self._cmake_version_text.text()})
+
+#adding useful functions
+
+function(DIR_EXISTS variable dir_path)
+
+file(GLOB ${{variable}}_check ${{dir_path}}/*)
+
+list(LENGTH ${{variable}}_check ${{variable}}_len)
+
+if(${{${{variable}}_len}} EQUAL 0)
+
+set(${{variable}} FALSE PARENT_SCOPE)
+
+else()
+
+set(${{variable}} TRUE PARENT_SCOPE)
+
+endif()
+
+endfunction()
+
+#adding extra cmake libs
+include(ExternalProject)
+include(FetchContent)
+
+#creating variables for ease of adding libraries
+set(DEPS_TO_BUILD )
+
+#project name
+project("{self._executable_name.text()}")
+        
+        '''
+        if len(self.repositories) > 0:
+            
+            string_to_use += f'''
+            
+#-------------- external repositories ---------------
+            
+            '''
+            for repo_name in self.repositories:
+                repo = self.repositories[repo_name]
+                library_locations = []
+                for item in repo.includes:
+                    if item == "./":
+                       include_directories.append(f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}''')
+                    else:
+                        include_directories.append(f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{item}''')
+                if len(repo.libraries) > 0:
+                    libraries_to_link[repo_name] = []
+                    index = 0
+                    for lib_file in repo.libraries:
+                        
+                        lib_name = lib_file[lib_file.rfind("/")+1:]
+                        lib_location = lib_file[:lib_file.rfind("/")]
+                        if lib_file[len(lib_file) - 1] == "*":
+                            lib_name = lib_name[:len(lib_name)-1]
+                            libraries_to_link[repo_name].append(f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{lib_location}/${{CMAKE_STATIC_LIBRARY_PREFIX}}{lib_name}$<$<CONFIG:Debug>:d>${{CMAKE_STATIC_LIBRARY_SUFFIX}}''')
+                        else:
+                            libraries_to_link[repo_name].append(f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{lib_location}/${{CMAKE_STATIC_LIBRARY_PREFIX}}{lib_name}${{CMAKE_STATIC_LIBRARY_SUFFIX}}''')
+                        library_locations.append(libraries_to_link[repo_name][index])
+                        index += 1
+                        
+                        
+                if repo.should_build:
+                    string_to_use += f'''
+
+# repository download for {repo_name.lower()}...
+                    
+dir_exists({repo_name.lower()}_exists ${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()})
+
+if(NOT ${{{repo_name.lower()}_exists}})
+    ExternalProject_Add({repo_name.upper()}
+    GIT_REPOSITORY {repo.git_repo}
+    GIT_TAG {repo.git_tag}
+    CMAKE_ARGS  -DCMAKE_INSTALL_PREFIX:PATH=${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}'''
+                    for arg in repo.cmake_args:
+                        string_to_use += f'''
+                {arg}
+                        '''
+                    string_to_use += f'''
+    BUILD_BYPRODUCTS {" ".join(library_locations)}
+    )
+
+    list(APPEND DEPS_TO_BUILD {repo_name.upper()})
+
+endif()
+
+
+                    '''
+                    any_dependencies = True
+                    
+                else:
+                    string_to_use += f'''
+
+# repository download for {repo_name.lower()}...
+                    
+dir_exists({repo_name.lower()}_exists ${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()})
+
+if(NOT ${{{repo_name.lower()}_exists}})
+    FetchContent_Declare({repo_name.upper()}
+    GIT_REPOSITORY {repo.git_repo}
+    GIT_TAG {repo.git_tag}
+    SOURCE_DIR ${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}
+    )
+
+    FetchContent_MakeAvailable({repo_name.upper()})
+
+endif()
+                    
+                    '''
+        
+        if len(self.installed_packages) > 0:
+            string_to_use += f'''
+#finding packages...            
+'''
+        
+        for package_name in self.installed_packages:
+            package = self.installed_packages[package_name]
+            if package.required:
+                string_to_use += f'''
+    find_package({package.name} REQUIRED)
+'''
+            else:
+                string_to_use += f'''
+find_package({package.name})
+'''
+            if len(package.includes) > 0:
+                for item in package.includes:
+                    include_directories.append(item)
+            if len(package.libraries) > 0:
+                libraries_to_link[package.name] = []
+                for item in package.libraries:
+                    libraries_to_link[package.name].append(item)
+        
+        
+        index = 1
+        for source_file in self.sources:
+            if os.path.isdir(source_file):
+                path = os.path.relpath(source_file,directory).replace("\\","/")
+                string_to_use += f'''
+file(GLOB SRC_FILES_{index} ${{PROJECT_SOURCE_DIR}}/{path} *.cpp *.cc *.c)'''
+                source_globs_to_add.append(f'''${{SRC_FILES_{index}}}''')
+                index += 1
+            else:
+                source_files.append(f'''${{PROJECT_SOURCE_DIR}}/''' + os.path.relpath(source_file,directory).replace("\\","/"))
+        
+        source_files_string = "\n\t".join(source_files)
+        source_file_globs = "\n\t".join(source_globs_to_add)
+        string_to_use += f'''
+
+#creating executable
+add_executable(${{PROJECT_NAME}}
+'''
+        if len(source_file_globs) > 0:
+            string_to_use += f'''
+    #source globs...
+    {source_file_globs}
+    
+'''     
+        string_to_use += f'''
+    #source files...
+    {source_files_string}
+)
+        
+#setting c/cpp standard
+
+set_property(TARGET ${{PROJECT_NAME}} PROPERTY CXX_STANDARD {self._cpp_standard_text.currentText()[3:]})
+
+        '''
+        
+        if any_dependencies:
+            string_to_use += f'''
+#adding dependencies
+
+foreach(X ${{DEPS_TO_BUILD}})
+
+    add_dependencies(${{PROJECT_NAME}} ${{X}})
+
+endforeach()
+
+
+            '''
+
+        if len(libraries_to_link) > 0:
+            string_to_use += f'''
+# ------------- linking libraries -------------
+            '''
+            
+            for item in libraries_to_link:
+                string_to_use += f'''
+
+    #linking for {item}...
+
+'''
+                for library in libraries_to_link[item]:
+                    string_to_use += f'''
+    target_link_libraries(${{PROJECT_NAME}} PRIVATE {library})
+                '''
+        
+        include_directories += [f'''${{PROJECT_SOURCE_DIR}}/{os.path.relpath(i,directory)}''' for i in self.includes]
+        
+        if len(include_directories) > 0:
+            string_to_use += f'''
+
+#------------ include directories -------------
+
+            '''    
+            
+            for item in include_directories:
+                string_to_use += f'''
+    target_include_directories(${{PROJECT_NAME}} PRIVATE {item})
+    
+'''
+
+
+        return string_to_use
+    
+    
+    def _generate_cmake_lists(self):
+        
+        if self._creating_directory == "":
+            QMessageBox.warning(self,"Warning!","Please choose a valid creating directory")
+            return
+        
+        if self._executable_name.text() == "":
+            QMessageBox.warning(self,"Executable Name Warning!","Please add the executable name")
+            return
+        
+        if self._cmake_version_text.text() == "":
+            QMessageBox.warning(self,"Cmake Version Warning!","Please fill the cmake version")
+            return
+        
+        if len(self.sources) == 0:
+            QMessageBox.warning(self,"Sources Warning!","Please add at least one source file")
+            return
+    
+    
+        
+        directory = self._creating_directory
+        
+        
+        if os.path.isfile(directory + "/CMakeLists.txt"):
+            msg = QMessageBox()
+            msg.setWindowTitle("Check")
+            msg.setText("A CMakeLists.txt file was found in the specified directory,\nare you sure you'd like to overwrite it?")
+            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            val = msg.exec_()
+            if val == QMessageBox.No:
+                return
+            else:
+                os.remove(directory + "/CMakeLists.txt")
+                
+        
+        string_to_use = self._get_cmake_lists_text(directory)
+        
+        file = open(directory + "/" + "CMakeLists.txt","w")
+        
+        file.write(string_to_use)
+        
+        
+        file.close()
+        
+        
+        self._save_to_cache(self._cache_location)
+        
+        
+        QMessageBox.warning(self,"Finish","Writing Done!")
+
     
