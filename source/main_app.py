@@ -35,6 +35,7 @@ class EasyCmakeApp(QWidget):
     #main widgets
     
     _creating_directory_button : QPushButton = field(default_factory=QPushButton)
+    _create_library_checkbox : QCheckBox = field(default_factory=QCheckBox)
     _creating_directory_text : QLabel = field(default_factory=QLabel)
     _executable_name : QLineEdit = field(default_factory=QLineEdit)
     _cpp_standard_text : QComboBox= field(default_factory=QComboBox)
@@ -63,6 +64,8 @@ class EasyCmakeApp(QWidget):
         self._creating_directory_text.setText(f'''Creating Directory: {current_dir}''')
         self._creating_directory_button.setText("Modify")
         self._creating_directory_button.clicked.connect(self._get_creating_dir)
+        
+        #self._create_library_checkbox.toggled.connect()
         
         self._cpp_standard_text.addItem("C++20")
         self._cpp_standard_text.addItem("C++17")
@@ -111,7 +114,9 @@ class EasyCmakeApp(QWidget):
         
         self._layout.addRow(self._creating_directory_text,self._creating_directory_button)
         
-        self._layout.addRow(QLabel("Executable Name*"),self._executable_name)
+        self._layout.addRow(QLabel("Create Library"),self._create_library_checkbox)
+        
+        self._layout.addRow(QLabel("Target Name*"),self._executable_name)
         
         self._layout.addRow(QLabel("C++ Standard"),self._cpp_standard_text)
         
@@ -214,7 +219,7 @@ class EasyCmakeApp(QWidget):
         if files[0] == []:
             return
         
-        self.sources = self.sources + files[0]
+        self.sources = self.sources + [os.path.relpath(i,self._creating_directory).replace("\\","/") for i in files[0]]
         
         self._source_text.setText("\n".join(self.sources))
         
@@ -229,7 +234,7 @@ class EasyCmakeApp(QWidget):
         if files == "":
             return
         
-        self.sources.append(files)
+        self.sources.append(os.path.relpath(files,self._creating_directory).replace("\\","/"))
         
         self._source_text.setText("\n".join(self.sources))
         
@@ -244,7 +249,7 @@ class EasyCmakeApp(QWidget):
         if files == "":
             return
         
-        self.includes.append(files)
+        self.includes.append(os.path.relpath(files,self._creating_directory).replace("\\","/"))
         
         self._includes_text.setText("\n".join(self.includes))
         
@@ -366,8 +371,9 @@ class EasyCmakeApp(QWidget):
         else:
             return False
             
-        my_settings = saved_files_dict[self._creating_directory]    
-        
+        my_settings = saved_files_dict[self._creating_directory]
+        if "create_library" in my_settings: 
+            self._create_library_checkbox.setChecked(my_settings["create_library"])
         self._executable_name.setText(my_settings["executable_name"])
         self._cpp_standard_text.setCurrentIndex(self._cpp_standard_text.findText(my_settings["cpp_version"]))
         self._cmake_version_text.setText(my_settings["cmake_version"])
@@ -408,6 +414,7 @@ class EasyCmakeApp(QWidget):
     def _save_to_cache(self,location):
         
         saving_dict = {
+            "create_library":self._create_library_checkbox.isChecked(),
             "executable_name":self._executable_name.text(),
             "cpp_version":self._cpp_standard_text.currentText(),
             "cmake_version":self._cmake_version_text.text(),
@@ -624,14 +631,21 @@ file(GLOB SRC_FILES_{index} ${{PROJECT_SOURCE_DIR}}/{path} *.cpp *.cc *.c)'''
                 source_globs_to_add.append(f'''${{SRC_FILES_{index}}}''')
                 index += 1
             else:
-                source_files.append(f'''${{PROJECT_SOURCE_DIR}}/''' + os.path.relpath(source_file,directory).replace("\\","/"))
+                source_files.append(f'''${{PROJECT_SOURCE_DIR}}/''' + source_file.replace("\\","/"))
         
         source_files_string = "\n\t".join(source_files)
         source_file_globs = "\n\t".join(source_globs_to_add)
-        string_to_use += f'''
+        if not self._create_library_checkbox.isChecked():
+            string_to_use += f'''
 
 #creating executable
 add_executable(${{PROJECT_NAME}}
+'''
+        else:
+            string_to_use += f'''
+
+#creating library
+add_library(${{PROJECT_NAME}}
 '''
         if len(source_file_globs) > 0:
             string_to_use += f'''
@@ -649,6 +663,21 @@ add_executable(${{PROJECT_NAME}}
 set_property(TARGET ${{PROJECT_NAME}} PROPERTY CXX_STANDARD {self._cpp_standard_text.currentText()[3:]})
 
         '''
+        
+        if self._create_library_checkbox.isChecked():
+            string_to_use += f'''
+
+#installing library
+install(TARGETS ${{PROJECT_NAME}} DESTINATION lib)
+
+#installing includes
+'''
+            for item in self.includes:
+                if item.endswith("*"):
+                    string_to_use += f'''
+
+install(DIRECTORY {item.replace("*","")}/ DESTINATION include)                
+'''
         
         if any_dependencies:
             string_to_use += f'''
@@ -679,7 +708,7 @@ endforeach()
     target_link_libraries(${{PROJECT_NAME}} PRIVATE {library})
                 '''
         
-        include_directories += [f'''${{PROJECT_SOURCE_DIR}}/{os.path.relpath(i,directory)}''' for i in self.includes]
+        include_directories += [f'''${{PROJECT_SOURCE_DIR}}/{i.replace("*","")}''' for i in self.includes]
         
         if len(include_directories) > 0:
             string_to_use += f'''
