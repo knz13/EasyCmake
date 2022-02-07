@@ -9,7 +9,7 @@ import sys
 import os
 from repository import*
 from installed_packages import *
-
+from advanced_options import *
 
 @dataclass
 class EasyCmakeApp(QWidget):
@@ -22,7 +22,7 @@ class EasyCmakeApp(QWidget):
     
     installed_packages: Dict[str,InstalledPackage] = field(default_factory=dict)
     repositories : Dict[str,Repository] = field(default_factory=dict)
-    
+    advanced_options : AdvancedOptions = AdvancedOptions() 
 
     _instance_cache_location: str = ""
     _cache_location : str = ""
@@ -43,6 +43,7 @@ class EasyCmakeApp(QWidget):
     _includes_text : QTextEdit = field(default_factory=QTextEdit)
     _repo_list_widget : QListWidget = field(default_factory=QListWidget)
     _generate_button : QPushButton = field(default_factory=QPushButton)
+    _advanced_button : QPushButton = field(default_factory=QPushButton)
     _cmake_version_text : QLineEdit = field(default_factory=QLineEdit)
 
     
@@ -55,6 +56,7 @@ class EasyCmakeApp(QWidget):
         
         
         current_dir = os.path.normpath(os.getcwd()).replace("\\","/")
+        self._creating_directory = current_dir
         self._cache_location = current_dir + "/cache.json"
         self._instance_cache_location = current_dir + "/instance_cache.json"
         
@@ -82,12 +84,17 @@ class EasyCmakeApp(QWidget):
         self._includes_text.textChanged.connect(self._update_include_text)
         self._includes_text.setMinimumSize(400,0)
         
+        self._advanced_button = QPushButton("Advanced")
+        self._advanced_button.clicked.connect(self._advanced_button_callback)
+        self._advanced_button.setMaximumWidth(80)
+        
         
         self._generate_button = QPushButton("Generate")
         self._generate_button.clicked.connect(self._generate_cmake_lists)
         self._generate_button.setMaximumWidth(80)
         
         self._repo_list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._repo_list_widget.setSelectionMode(QAbstractItemView.SingleSelection)
         self._repo_list_widget.customContextMenuRequested.connect(self._repo_list_context_menu_callback)
         
         
@@ -131,8 +138,12 @@ class EasyCmakeApp(QWidget):
         
         self._layout.addRow(QLabel("External Repositories\n(Right click on the white screen on the right for more options)"),self._repo_list_widget)
         
+        end_buttons_layout = QHBoxLayout()
+        end_buttons_layout.addWidget(self._generate_button)
+        end_buttons_layout.addStretch()
+        end_buttons_layout.addWidget(self._advanced_button)
         
-        self._layout.addRow(self._generate_button)
+        self._layout.addRow(end_buttons_layout)
         
         
         
@@ -150,6 +161,11 @@ class EasyCmakeApp(QWidget):
         
         self.setLayout(layout)
         
+        
+    def _advanced_button_callback(self):
+        dialog = AdvancedOptionsDialog(deepcopy(self.advanced_options))
+        if dialog.exec_():
+            self.advanced_options = dialog.advanced_options_ref
     
     def _repo_list_context_menu_callback(self,position):
         
@@ -192,6 +208,8 @@ class EasyCmakeApp(QWidget):
     def _get_creating_dir(self):
         
         if self._creating_directory != "":
+            if not os.path.exists(self._instance_cache_location):
+                open(self._instance_cache_location,"x").close()
             self._save_to_cache(self._instance_cache_location)
 
             self._clear_fields()
@@ -370,6 +388,12 @@ class EasyCmakeApp(QWidget):
                     return False
         else:
             return False
+        
+        #clearing fields
+        self.list_of_external_repo_names.clear()
+        self._repo_list_widget.clear()
+        self.installed_packages.clear()
+        self.advanced_options.clear()
             
         my_settings = saved_files_dict[self._creating_directory]
         if "create_library" in my_settings: 
@@ -380,30 +404,25 @@ class EasyCmakeApp(QWidget):
         self._source_text.setText("\n".join(my_settings["sources"]))
         self._includes_text.setText("\n".join(my_settings["includes"]))
         
-        self._repo_list_widget.clear()
+        
         for item in my_settings["repositories"]:
             repo = Repository()
-            repo.name = item
-            repo.git_repo = my_settings["repositories"][item]["repo"]
-            repo.git_tag = my_settings["repositories"][item]["tag"]
-            repo.should_build = my_settings["repositories"][item]["should_build"]
-            repo.includes = my_settings["repositories"][item]["includes"]
-            repo.libraries = my_settings["repositories"][item]["libraries"]
-            repo.cmake_args = my_settings["repositories"][item]["cmake_args"]
+            repo.get_from_dict(item)
             
-            self.repositories[item] = repo
+            self.repositories[repo.name] = repo
             
-            self.list_of_external_repo_names[item] = "repository"
+            self.list_of_external_repo_names[repo.name] = "repository"
            
+        self.installed_packages.clear()
         for item in my_settings["installed_packages"]:
             installed_package = InstalledPackage()
-            installed_package.name = item
-            installed_package.required = my_settings["installed_packages"][item]["required"]
-            installed_package.includes = my_settings["installed_packages"][item]["includes"]
-            installed_package.libraries = my_settings["installed_packages"][item]["libraries"]
+            installed_package.get_from_dict(item)
            
-            self.installed_packages[item] = installed_package
-            self.list_of_external_repo_names[item] = "package"
+            self.installed_packages[installed_package.name] = installed_package
+            self.list_of_external_repo_names[installed_package.name] = "package"
+            
+        if len(my_settings["advanced_options"]) > 0:
+            self.advanced_options.get_from_dict(my_settings["advanced_options"])
            
         self._update_repo_list()
         
@@ -420,27 +439,21 @@ class EasyCmakeApp(QWidget):
             "cmake_version":self._cmake_version_text.text(),
             "sources":self.sources,
             "includes":self.includes,
-            "repositories":{},
-            "installed_packages":{}
+            "repositories":[],
+            "installed_packages":[],
+            "advanced_options": {}
         }
         
         for item in self.repositories:
-            saving_dict["repositories"][item] = {
-                "repo":self.repositories[item].git_repo,
-                "tag":self.repositories[item].git_tag,
-                "should_build":self.repositories[item].should_build,
-                "includes":self.repositories[item].includes,
-                "libraries":self.repositories[item].libraries,
-                "cmake_args":self.repositories[item].cmake_args
-            }
+            dict = {}
+            self.repositories[item].add_to_dict(dict)
+            saving_dict["repositories"].append(dict)
         for item in self.installed_packages:
-            installed_package = self.installed_packages[item]
-            saving_dict["installed_packages"][item] = {
-                "package_name":installed_package.name,
-                "required":installed_package.required,
-                "includes":installed_package.includes,
-                "libraries":installed_package.libraries
-            }
+            dict = {}
+            self.installed_packages[item].add_to_dict(dict)
+            saving_dict["installed_packages"].append(dict)
+            
+        self.advanced_options.add_to_dict(saving_dict["advanced_options"])
         
         file = open(location,"r")
         
@@ -509,6 +522,7 @@ endif()
 endfunction()
 
 #adding extra cmake libs
+include(GNUInstallDirs)
 include(ExternalProject)
 include(FetchContent)
 
@@ -564,7 +578,7 @@ if(NOT ${{{repo_name.lower()}_exists}})
     CMAKE_ARGS  -DCMAKE_INSTALL_PREFIX:PATH=${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}'''
                     for arg in repo.cmake_args:
                         string_to_use += f'''
-                {arg}
+                -D{arg}
                         '''
                     string_to_use += f'''
     BUILD_BYPRODUCTS {" ".join(library_locations)}
@@ -605,14 +619,16 @@ endif()
         
         for package_name in self.installed_packages:
             package = self.installed_packages[package_name]
+            addition_string = f'''find_package({package_name}'''
+            if len(package.extra_args) > 0:
+                addition_string += f''' {package.extra_args}'''
             if package.required:
-                string_to_use += f'''
-    find_package({package.name} REQUIRED)
+                addition_string += " REQUIRED"
+            addition_string += ")"
+            string_to_use += f'''
+{addition_string}
 '''
-            else:
-                string_to_use += f'''
-find_package({package.name})
-'''
+
             if len(package.includes) > 0:
                 for item in package.includes:
                     include_directories.append(item)
@@ -668,7 +684,7 @@ set_property(TARGET ${{PROJECT_NAME}} PROPERTY CXX_STANDARD {self._cpp_standard_
             string_to_use += f'''
 
 #installing library
-install(TARGETS ${{PROJECT_NAME}} DESTINATION lib)
+install(TARGETS ${{PROJECT_NAME}} DESTINATION lib RUNTIME_DEPENDENCIES)
 
 #installing includes
 '''
@@ -676,7 +692,16 @@ install(TARGETS ${{PROJECT_NAME}} DESTINATION lib)
                 if item.endswith("*"):
                     string_to_use += f'''
 
-install(DIRECTORY {item.replace("*","")}/ DESTINATION include)                
+install(DIRECTORY {item.replace("*","")} DESTINATION include FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp" PATTERN "*.inl")
+''' 
+            if len(include_directories) > 0:
+                string_to_use += f'''
+
+#installing includes from dependencies...
+'''
+            for item in include_directories:
+                string_to_use += f'''
+    install(DIRECTORY {item}/ DESTINATION include FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp" PATTERN "*.inl")
 '''
         
         if any_dependencies:
@@ -705,7 +730,7 @@ endforeach()
 '''
                 for library in libraries_to_link[item]:
                     string_to_use += f'''
-    target_link_libraries(${{PROJECT_NAME}} PRIVATE {library})
+    target_link_libraries(${{PROJECT_NAME}} PUBLIC {library})
                 '''
         
         include_directories += [f'''${{PROJECT_SOURCE_DIR}}/{i.replace("*","")}''' for i in self.includes]
@@ -719,11 +744,24 @@ endforeach()
             
             for item in include_directories:
                 string_to_use += f'''
-    target_include_directories(${{PROJECT_NAME}} PRIVATE {item})
+    target_include_directories(${{PROJECT_NAME}} PUBLIC {item})
     
 '''
 
 
+        if len(self.advanced_options.extra_commands) > 0:
+            string_to_use += f'''
+#------------ custom commands ----------------
+            
+'''
+            for item in self.advanced_options.extra_commands.values():
+                string_to_use += f'''
+    add_custom_command(TARGET ${{PROJECT_NAME}} {item.execute_time} COMMAND {item.command})
+    
+'''
+                
+                
+                
         return string_to_use
     
     

@@ -14,7 +14,8 @@ from main_app import *
 if __name__ == "__main__":
 
     application = QApplication(sys.argv)
-            
+    application.setAttribute(Qt.AA_DisableWindowContextHelpButton)
+    
     app = EasyCmakeApp()
 
     app.show()

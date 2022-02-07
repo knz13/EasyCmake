@@ -14,7 +14,23 @@ class Repository:
     
     #advanced 
     
-    
+    def add_to_dict(self,dict):
+        dict["name"] = self.name
+        dict["repo"] = self.git_repo
+        dict["tag"] = self.git_tag
+        dict["should_build"] = self.should_build
+        dict["includes"] = self.includes
+        dict["libraries"] = self.libraries
+        dict["cmake_args"] = self.cmake_args
+        
+    def get_from_dict(self,dict):
+        self.name = dict["name"]
+        self.git_repo = dict["repo"]
+        self.git_tag = dict["tag"]
+        self.should_build = dict["should_build"]
+        self.includes = dict["includes"]
+        self.libraries = dict["libraries"]
+        self.cmake_args = dict["cmake_args"]
     
     
     def get_as_string(self):
