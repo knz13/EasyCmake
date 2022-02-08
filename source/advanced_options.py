@@ -1,11 +1,10 @@
-from ast import alias
 from dataclasses import dataclass,field
 from typing import List,Dict
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import Qt
 from enum import Enum
+from copy import deepcopy
 
-from numpy import extract
 
 
 
@@ -189,15 +188,19 @@ class AdvancedOptionsDialog(QDialog):
             self._extra_commands.addItem(item.alias)
         
     def _extra_commands_context_menu_modify(self):
-        command = self.advanced_options_ref.extra_commands[self._extra_commands.selectedItems()[0].text()]
+        command = deepcopy(self.advanced_options_ref.extra_commands[self._extra_commands.selectedItems()[0].text()])
+        original_command = deepcopy(command)
         command_name = command.alias
+        self.advanced_options_ref.extra_commands.pop(command_name)
         
         
         dialog = command.get_dialog(self,self.advanced_options_ref.extra_commands)
         
         if dialog.exec_():
-            self.advanced_options_ref.extra_commands.pop(command_name)
             self.advanced_options_ref.extra_commands[command.alias] = command
+            self._update_extra_commands_list()
+        else:
+            self.advanced_options_ref.extra_commands[original_command.alias] = original_command
             self._update_extra_commands_list()
         
     def _extra_commands_context_menu_add(self):
