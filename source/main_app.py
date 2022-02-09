@@ -9,7 +9,7 @@ import sys
 import os
 from repository import*
 from installed_packages import *
-from advanced_options import *
+from advanced_options_dialog import *
 
 @dataclass
 class EasyCmakeApp(QWidget):
@@ -165,7 +165,7 @@ class EasyCmakeApp(QWidget):
     def _advanced_button_callback(self):
         dialog = AdvancedOptionsDialog(deepcopy(self.advanced_options))
         if dialog.exec_():
-            self.advanced_options = dialog.advanced_options_ref
+            self.advanced_options = dialog.advanced_options
     
     def _repo_list_context_menu_callback(self,position):
         
@@ -758,6 +758,19 @@ endforeach()
                 string_to_use += f'''
     add_custom_command(TARGET ${{PROJECT_NAME}} {item.execute_time} COMMAND {item.command})
     
+'''
+        if len(self.advanced_options.additional_lines) > 0:
+            string_to_use += f'''
+#------------ additional lines ---------------
+
+'''
+            for item in self.advanced_options.additional_lines:
+                my_str = "\n\t".join(item.lines)
+                string_to_use += f'''
+    # additional lines for alias "{item.alias}"...
+
+    {my_str}
+
 '''
                 
                 
