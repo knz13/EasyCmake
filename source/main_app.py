@@ -756,9 +756,19 @@ endforeach()
 '''
             for item in self.advanced_options.extra_commands.values():
                 string_to_use += f'''
-    add_custom_command(TARGET ${{PROJECT_NAME}} {item.execute_time} COMMAND {item.command})
+    #custom command for alias {item.alias}...
+                
+    add_custom_command(TARGET ${{PROJECT_NAME}}
+                       {item.execute_time}'''
+                for command in item.command:
+                    string_to_use += f'''
+                       COMMAND {command}'''
+                string_to_use += f'''
+                       )
     
 '''
+
+
         if len(self.advanced_options.additional_lines) > 0:
             string_to_use += f'''
 #------------ additional lines ---------------

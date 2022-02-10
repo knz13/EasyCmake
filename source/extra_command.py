@@ -1,6 +1,7 @@
-from dataclasses import dataclass
+from dataclasses import dataclass,field
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import Qt
+from typing import List
 
 
 
@@ -9,8 +10,8 @@ from PyQt5.QtCore import Qt
 @dataclass
 class ExtraCommand:
     alias : str= ""
-    command : str = ""
-    execute_time : str = ""
+    command : List[str] = field(default_factory=list)
+    execute_time : str=""
     
     def get_from_dict(self,dict):
         self.alias = dict["alias"]
@@ -56,7 +57,8 @@ class ExtraCommand:
         
         execute_time_combobox.currentTextChanged.connect(lambda: self._get_execute_time(execute_time_combobox))
         
-        command_text = QLineEdit(self.command)
+        command_text = QTextEdit()
+        command_text.setText("\n".join(self.command))
         command_text.textChanged.connect(lambda: self._get_command_text(command_text))
         
         layout.addRow("Alias",alias_text)
@@ -99,6 +101,6 @@ class ExtraCommand:
     def _get_execute_time(self,combobox : QComboBox):
         self.execute_time = combobox.currentText()
 
-    def _get_command_text(self,text : QLineEdit):
-        self.command = text.text()
+    def _get_command_text(self,text : QTextEdit):
+        self.command = text.toPlainText().split("\n")
         
