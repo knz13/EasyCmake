@@ -44,6 +44,7 @@ class InstalledPackageDialog(QDialog):
         self.package_extra_args.editingFinished.connect(self._package_extra_args_callback)
         
         self.is_required_check = QCheckBox()
+        self.is_required_check.setCheckState(package.required)
         self.is_required_check.stateChanged.connect(self._required_check_state_callback)
         
         self.includes_text = QTextEdit()
