@@ -571,11 +571,12 @@ project("{self._executable_name.text()}")
                     
 dir_exists({repo_name.lower()}_exists ${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()})
 
-if(NOT ${{{repo_name.lower()}_exists}})
+if(NOT ${{{repo_name.lower()}_exists}} OR NOT ${{${{PROJECT_NAME}}_BUILD_TYPE}} STREQUAL ${{CMAKE_BUILD_TYPE}})
     ExternalProject_Add({repo_name.upper()}
     GIT_REPOSITORY {repo.git_repo}
     GIT_TAG {repo.git_tag}
-    CMAKE_ARGS  -DCMAKE_INSTALL_PREFIX:PATH=${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}'''
+    CMAKE_ARGS  -DCMAKE_INSTALL_PREFIX:PATH=${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}
+                -DCMAKE_BUILD_TYPE=${{CMAKE_BUILD_TYPE}}'''
                     for arg in repo.cmake_args:
                         string_to_use += f'''
                 -D{arg}
@@ -690,18 +691,24 @@ install(TARGETS ${{PROJECT_NAME}} DESTINATION lib RUNTIME_DEPENDENCIES)
 '''
             for item in self.includes:
                 if item.endswith("*"):
+                    installation_location = item[item.index("*")+1:]
+                    installation_location = installation_location.replace("*","")
+                    
                     string_to_use += f'''
 
-install(DIRECTORY {item.replace("*","")} DESTINATION include FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp" PATTERN "*.inl")
-''' 
-            if len(include_directories) > 0:
-                string_to_use += f'''
-
-#installing includes from dependencies...
+install(DIRECTORY {item[:item.index("*")]} DESTINATION {installation_location} FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp" PATTERN "*.inl")
 '''
-            for item in include_directories:
+ 
+            if len(libraries_to_link) > 0:
                 string_to_use += f'''
-    install(DIRECTORY {item}/ DESTINATION include FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp" PATTERN "*.inl")
+#installing libraries from dependencies...
+
+'''
+            for item in libraries_to_link:
+                if item not in self.installed_packages:
+                    for lib_file in libraries_to_link[item]:
+                        string_to_use += f'''
+    install(FILES {lib_file} DESTINATION lib)
 '''
         
         if any_dependencies:
@@ -733,7 +740,7 @@ endforeach()
     target_link_libraries(${{PROJECT_NAME}} PUBLIC {library})
                 '''
         
-        include_directories += [f'''${{PROJECT_SOURCE_DIR}}/{i.replace("*","")}''' for i in self.includes]
+        include_directories += [f'''${{PROJECT_SOURCE_DIR}}/{i[:i.index("*")]}''' if "*" in i else f'''${{PROJECT_SOURCE_DIR}}/{i}''' for i in self.includes]
         
         if len(include_directories) > 0:
             string_to_use += f'''
@@ -783,7 +790,13 @@ endforeach()
 
 '''
                 
-                
+        string_to_use += f'''
+
+# cacheing the build type
+
+set(${{PROJECT_NAME}}_BUILD_TYPE ${{CMAKE_BUILD_TYPE}} CACHE INTERNAL "")
+        
+'''  
                 
         return string_to_use
     
