@@ -35,9 +35,19 @@ class AdvancedOptionsDialog(QDialog):
         
         self._update_additional_lines()
         
+        self._public_user_options = QListWidget()
+        self._public_user_options.setSelectionMode(QAbstractItemView.SingleSelection)
+        self._public_user_options.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._public_user_options.customContextMenuRequested.connect(self._public_user_options_context_menu)
+        
+        self._update_public_options()
+        
         extra_commands_layout = QFormLayout()
-        extra_commands_layout.addRow("Extra Commands\n(Right click for options)",self._extra_commands)
-        extra_commands_layout.addRow("Additional Lines\n(Right click for options)\n(Drag and drop for ordering)",self._additional_lines)
+        extra_commands_layout.addRow("Extra Commands\n(Right click to check actions)",self._extra_commands)
+        extra_commands_layout.addRow("Additional Lines\n(Right click to check actions)\n(Drag and drop for ordering)",self._additional_lines)
+        extra_commands_layout.addRow("Public Options\n(Right click to check actions)",self._public_user_options)
+        
+        
         
         
         
@@ -196,4 +206,52 @@ class AdvancedOptionsDialog(QDialog):
         self.advanced_options.extra_commands.pop(self._extra_commands.selectedItems()[0].text())
         self._update_extra_commands_list()
         
+    def _public_user_options_context_menu(self,position):
+        menu = QMenu()
+        menu.addAction("Add").triggered.connect(self._public_user_options_context_menu_add)
         
+        if len(self._public_user_options.selectedItems()) == 1:
+            menu.addAction("Modify").triggered.connect(self._public_user_options_context_menu_modify)
+            menu.addAction("Delete").triggered.connect(self._public_user_options_context_menu_delete)
+        
+        menu.exec_(self._public_user_options.mapToGlobal(position))
+        
+    def _update_public_options(self):
+        self._public_user_options.clear()
+        
+        for item in self.advanced_options.public_user_options:
+            self._public_user_options.addItem(item)
+            
+        
+    def _public_user_options_context_menu_add(self):
+        
+        option = PublicUserOption()
+        
+        dialog = option.get_dialog(self,self.advanced_options.public_user_options)
+        
+        if dialog.exec_():
+            self.advanced_options.public_user_options[option.alias] = option
+            
+            self._update_public_options()
+            
+    def _public_user_options_context_menu_delete(self):
+        self.advanced_options.public_user_options.pop(self._public_user_options.selectedItems()[0].text())
+        self._update_public_options()
+        
+    def _public_user_options_context_menu_modify(self):
+        original_option = self.advanced_options.public_user_options[self._public_user_options.selectedItems()[0].text()]
+        test_option = deepcopy(original_option)
+        
+        self.advanced_options.public_user_options.pop(original_option.alias)
+        
+        dialog = test_option.get_dialog(self,self.advanced_options.public_user_options)
+        
+        if dialog.exec_():
+            
+            self.advanced_options.public_user_options[test_option.alias] = test_option
+            
+            self._update_public_options()
+        else:
+            self.advanced_options.public_user_options[original_option.alias] = original_option
+            
+            self._update_public_options()

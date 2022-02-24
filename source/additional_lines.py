@@ -66,7 +66,7 @@ class AdditionalLines:
             return
     
         if self.alias in lines_already_added:
-            QMessageBox.warning(dialog,"Warning",f'''Alias {self.alias} is already in use.\nPlease choose another one.''')
+            QMessageBox.warning(dialog,"Warning",f'''Alias '{self.alias}' is already in use.\nPlease choose another one.''')
             
             return
         

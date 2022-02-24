@@ -87,7 +87,7 @@ class ExtraCommand:
             return
         
         if self.alias in current_used_commands:
-            QMessageBox.warning(dialog,"Warning",f'''Alias {self.alias} was already used,\nplease choose another one.''')
+            QMessageBox.warning(dialog,"Warning",f'''Alias '{self.alias}' was already used,\nplease choose another one.''')
             
             return
         dialog.accept()

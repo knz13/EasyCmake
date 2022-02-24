@@ -1,28 +1,12 @@
-from dataclasses import dataclass,field
-from typing import List,Dict
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import QIntValidator,QDoubleValidator
-from PyQt5.QtCore import Qt
-from copy import deepcopy
-import json
-import sys
-import os
-from repository import*
-from installed_packages import *
-from advanced_options_dialog import *
+from main_app_containers import *
+
 
 @dataclass
-class EasyCmakeApp(QWidget):
+class EasyCmakeApp(QMainWindow):
     
     #main stuff
     
-    sources : List[str] = field(default_factory=list)
-    includes : List[str] = field(default_factory=list)
-    list_of_external_repo_names: Dict[str,str] = field(default_factory=dict)
-    
-    installed_packages: Dict[str,InstalledPackage] = field(default_factory=dict)
-    repositories : Dict[str,Repository] = field(default_factory=dict)
-    advanced_options : AdvancedOptions = AdvancedOptions() 
+    container : MainAppData = field(default_factory= MainAppData)
 
     _instance_cache_location: str = ""
     _cache_location : str = ""
@@ -154,18 +138,23 @@ class EasyCmakeApp(QWidget):
         scroll.setWidget(box)
         scroll.setWidgetResizable(True)
         
-        layout = QVBoxLayout()
-        layout.addWidget(scroll)
+        
+        menuBar = self.menuBar()
+        
+        menuBar.addMenu(QMenu("menu"))
+    
+        
+        self.setCentralWidget(scroll)
         
         
         
-        self.setLayout(layout)
+        
         
         
     def _advanced_button_callback(self):
-        dialog = AdvancedOptionsDialog(deepcopy(self.advanced_options))
+        dialog = AdvancedOptionsDialog(deepcopy(self.container.advanced_options))
         if dialog.exec_():
-            self.advanced_options = dialog.advanced_options
+            self.container.advanced_options = dialog.advanced_options
     
     def _repo_list_context_menu_callback(self,position):
         
@@ -192,17 +181,14 @@ class EasyCmakeApp(QWidget):
         self._executable_name.setText("")
         self._cpp_standard_text.setCurrentIndex(self._cpp_standard_text.findText("C++20"))
         self._cmake_version_text.setText("")
-        self.sources.clear()
-        self._source_text.clear()
-        self.includes.clear()
-        self._includes_text.clear()
-        self.repositories.clear()
-        self.installed_packages.clear()
-        self.list_of_external_repo_names.clear()
         
-        self._update_source_text()
-        self._update_include_text()
-        self._update_repo_list()
+        self._source_text.clear()
+        
+        self._includes_text.clear()
+        
+        self.container.clear()
+        
+        self._update_all()
         
         
     def _get_creating_dir(self):
@@ -237,9 +223,9 @@ class EasyCmakeApp(QWidget):
         if files[0] == []:
             return
         
-        self.sources = self.sources + [os.path.relpath(i,self._creating_directory).replace("\\","/") for i in files[0]]
+        self.container.sources = self.container.sources + [os.path.relpath(i,self._creating_directory).replace("\\","/") for i in files[0]]
         
-        self._source_text.setText("\n".join(self.sources))
+        self._source_text.setText("\n".join(self.container.sources))
         
     def _add_source_dirs(self):
         
@@ -252,9 +238,9 @@ class EasyCmakeApp(QWidget):
         if files == "":
             return
         
-        self.sources.append(os.path.relpath(files,self._creating_directory).replace("\\","/"))
+        self.container.sources.append(os.path.relpath(files,self._creating_directory).replace("\\","/"))
         
-        self._source_text.setText("\n".join(self.sources))
+        self._source_text.setText("\n".join(self.container.sources))
         
     
     def _add_include_dirs(self):
@@ -267,17 +253,17 @@ class EasyCmakeApp(QWidget):
         if files == "":
             return
         
-        self.includes.append(os.path.relpath(files,self._creating_directory).replace("\\","/"))
+        self.container.includes.append(os.path.relpath(files,self._creating_directory).replace("\\","/"))
         
-        self._includes_text.setText("\n".join(self.includes))
+        self._includes_text.setText("\n".join(self.container.includes))
         
     def _add_new_installed_package(self):
         installed_package = InstalledPackage()
         dialog = InstalledPackageDialog(installed_package)
         
         if dialog.exec_():
-            self.installed_packages[installed_package.name] = installed_package
-            self.list_of_external_repo_names[installed_package.name] = "package"
+            self.container.installed_packages[installed_package.name] = installed_package
+            self.container.list_of_external_repo_names[installed_package.name] = "package"
             self._update_repo_list()
         
     def _create_new_repo_callback(self):
@@ -285,66 +271,63 @@ class EasyCmakeApp(QWidget):
         dialog = RepositoryDialog(repo)
         
         if dialog.exec_():
-            self.repositories[repo.name] = repo
-            self.list_of_external_repo_names[repo.name] = "repository"
+            self.container.repositories[repo.name] = repo
+            self.container.list_of_external_repo_names[repo.name] = "repository"
             self._update_repo_list()
 
     def _repo_modify_callback(self):
         text = self._repo_list_widget.selectedItems()[0].text()
-        if self.list_of_external_repo_names[text] == "repository":
-            repo = deepcopy(self.repositories[text])
+        if self.container.list_of_external_repo_names[text] == "repository":
+            repo = deepcopy(self.container.repositories[text])
             repo_name = repo.name
             dialog = RepositoryDialog(repo)
             
             if dialog.exec_():
-                self.repositories.pop(repo_name)
-                self.repositories[repo.name] = repo
-                self.list_of_external_repo_names.pop(repo_name)
-                self.list_of_external_repo_names[repo.name] = "repository"
+                self.container.repositories.pop(repo_name)
+                self.container.repositories[repo.name] = repo
+                self.container.list_of_external_repo_names.pop(repo_name)
+                self.container.list_of_external_repo_names[repo.name] = "repository"
                 self._update_repo_list()
                 
-        if self.list_of_external_repo_names[text] == "package":
-            installed_package = deepcopy(self.installed_packages[text])
+        if self.container.list_of_external_repo_names[text] == "package":
+            installed_package = deepcopy(self.container.installed_packages[text])
             old_name = installed_package.name
             dialog = InstalledPackageDialog(installed_package)
             
             if dialog.exec_():
-                self.installed_packages.pop(old_name)
-                self.installed_packages[installed_package.name] = installed_package
-                self.list_of_external_repo_names.pop(old_name)
-                self.list_of_external_repo_names[installed_package.name] = "package"
+                self.container.installed_packages.pop(old_name)
+                self.container.installed_packages[installed_package.name] = installed_package
+                self.container.list_of_external_repo_names.pop(old_name)
+                self.container.list_of_external_repo_names[installed_package.name] = "package"
                 self._update_repo_list()
             
 
     def _repo_delete_callback(self):
         repo_name = self._repo_list_widget.selectedItems()[0].text()
-        if self.list_of_external_repo_names[repo_name] == "repository":
-            self.repositories.pop(repo_name)
-        if self.list_of_external_repo_names[repo_name] == "package":
-            self.installed_packages.pop(repo_name)
+        if self.container.list_of_external_repo_names[repo_name] == "repository":
+            self.container.repositories.pop(repo_name)
+        if self.container.list_of_external_repo_names[repo_name] == "package":
+            self.container.installed_packages.pop(repo_name)
             
-        self.list_of_external_repo_names.pop(repo_name)
+        self.container.list_of_external_repo_names.pop(repo_name)
         self._update_repo_list()
         
     def _update_repo_list(self):
         self._repo_list_widget.clear()
-        for item in self.list_of_external_repo_names:
+        for item in self.container.list_of_external_repo_names:
             this_item = QListWidgetItem()
             this_item.setText(item)
-            this_item.setToolTip(self.list_of_external_repo_names[item])
+            this_item.setToolTip(self.container.list_of_external_repo_names[item])
             self._repo_list_widget.addItem(this_item)
             
-
-        
-        
     def _update_source_text(self):
-        if "\n".join(self.sources) != self._source_text.toPlainText():
-            self.sources = self._source_text.toPlainText().split()
+        if "\n".join(self.container.sources) != self._source_text.toPlainText():
+            self.container.sources = self._source_text.toPlainText().split()
 
             
     def _update_include_text(self):
-        if "\n".join(self.includes) != self._includes_text.toPlainText():
-            self.includes = self._includes_text.toPlainText().split()
+        if "\n".join(self.container.includes) != self._includes_text.toPlainText():
+            self.container.includes = self._includes_text.toPlainText().split()
             
     def closeEvent(self, event) -> None:
         
@@ -352,6 +335,13 @@ class EasyCmakeApp(QWidget):
             os.remove(self._instance_cache_location)
 
         return super().closeEvent(event)
+    
+    def _update_all(self):
+        self._source_text.setText("\n".join(self.container.sources))
+        self._includes_text.setText("\n".join(self.container.includes))
+        
+        self._update_repo_list()
+        
     
     def _check_if_creating_dir_in_cache(self,cache_location):
         
@@ -372,8 +362,6 @@ class EasyCmakeApp(QWidget):
         file.close()
         
         
-        
-        
         if self._creating_directory in saved_files_dict:
             if cache_location == self._cache_location:
                 msg = QMessageBox()
@@ -390,45 +378,26 @@ class EasyCmakeApp(QWidget):
             return False
         
         #clearing fields
-        self.list_of_external_repo_names.clear()
+        
         self._repo_list_widget.clear()
-        self.installed_packages.clear()
-        self.advanced_options.clear()
+        self.container.clear()
             
         my_settings = saved_files_dict[self._creating_directory]
+        
         if "create_library" in my_settings: 
             self._create_library_checkbox.setChecked(my_settings["create_library"])
-        self._executable_name.setText(my_settings["executable_name"])
-        self._cpp_standard_text.setCurrentIndex(self._cpp_standard_text.findText(my_settings["cpp_version"]))
-        self._cmake_version_text.setText(my_settings["cmake_version"])
-        self._source_text.setText("\n".join(my_settings["sources"]))
-        self._includes_text.setText("\n".join(my_settings["includes"]))
+        if "executable_name" in my_settings:
+            self._executable_name.setText(my_settings["executable_name"])
+        if "cpp_version" in my_settings:
+            self._cpp_standard_text.setCurrentIndex(self._cpp_standard_text.findText(my_settings["cpp_version"]))
+        if "cmake_version" in my_settings:
+            self._cmake_version_text.setText(my_settings["cmake_version"])
         
-        
-        for item in my_settings["repositories"]:
-            repo = Repository()
-            repo.get_from_dict(item)
-            
-            self.repositories[repo.name] = repo
-            
-            self.list_of_external_repo_names[repo.name] = "repository"
+        self.container.get_from_dict(my_settings)
            
-        self.installed_packages.clear()
-        for item in my_settings["installed_packages"]:
-            installed_package = InstalledPackage()
-            installed_package.get_from_dict(item)
-           
-            self.installed_packages[installed_package.name] = installed_package
-            self.list_of_external_repo_names[installed_package.name] = "package"
-            
-        if len(my_settings["advanced_options"]) > 0:
-            self.advanced_options.get_from_dict(my_settings["advanced_options"])
-           
-        self._update_repo_list()
+        self._update_all()
         
         return True
-            
-            
     
     def _save_to_cache(self,location):
         
@@ -436,24 +405,10 @@ class EasyCmakeApp(QWidget):
             "create_library":self._create_library_checkbox.isChecked(),
             "executable_name":self._executable_name.text(),
             "cpp_version":self._cpp_standard_text.currentText(),
-            "cmake_version":self._cmake_version_text.text(),
-            "sources":self.sources,
-            "includes":self.includes,
-            "repositories":[],
-            "installed_packages":[],
-            "advanced_options": {}
+            "cmake_version":self._cmake_version_text.text()
         }
         
-        for item in self.repositories:
-            dict = {}
-            self.repositories[item].add_to_dict(dict)
-            saving_dict["repositories"].append(dict)
-        for item in self.installed_packages:
-            dict = {}
-            self.installed_packages[item].add_to_dict(dict)
-            saving_dict["installed_packages"].append(dict)
-            
-        self.advanced_options.add_to_dict(saving_dict["advanced_options"])
+        self.container.add_to_dict(saving_dict)
         
         file = open(location,"r")
         
@@ -533,15 +488,15 @@ set(DEPS_TO_BUILD )
 project("{self._executable_name.text()}")
         
         '''
-        if len(self.repositories) > 0:
+        if len(self.container.repositories) > 0:
             
             string_to_use += f'''
             
 #-------------- external repositories ---------------
             
             '''
-            for repo_name in self.repositories:
-                repo = self.repositories[repo_name]
+            for repo_name in self.container.repositories:
+                repo = self.container.repositories[repo_name]
                 library_locations = []
                 for item in repo.includes:
                     if item == "./":
@@ -613,13 +568,13 @@ endif()
                     
                     '''
         
-        if len(self.installed_packages) > 0:
+        if len(self.container.installed_packages) > 0:
             string_to_use += f'''
 #finding packages...            
 '''
         
-        for package_name in self.installed_packages:
-            package = self.installed_packages[package_name]
+        for package_name in self.container.installed_packages:
+            package = self.container.installed_packages[package_name]
             addition_string = f'''find_package({package_name}'''
             if len(package.extra_args) > 0:
                 addition_string += f''' {package.extra_args}'''
@@ -640,7 +595,7 @@ endif()
         
         
         index = 1
-        for source_file in self.sources:
+        for source_file in self.container.sources:
             if os.path.isdir(source_file):
                 path = os.path.relpath(source_file,directory).replace("\\","/")
                 string_to_use += f'''
@@ -689,7 +644,7 @@ install(TARGETS ${{PROJECT_NAME}} DESTINATION lib RUNTIME_DEPENDENCIES)
 
 #installing includes
 '''
-            for item in self.includes:
+            for item in self.container.includes:
                 if item.endswith("*"):
                     installation_location = item[item.index("*")+1:]
                     installation_location = installation_location.replace("*","")
@@ -705,7 +660,7 @@ install(DIRECTORY {item[:item.index("*")]} DESTINATION {installation_location} F
 
 '''
             for item in libraries_to_link:
-                if item not in self.installed_packages:
+                if item not in self.container.installed_packages:
                     for lib_file in libraries_to_link[item]:
                         string_to_use += f'''
     install(FILES {lib_file} DESTINATION lib)
@@ -740,7 +695,7 @@ endforeach()
     target_link_libraries(${{PROJECT_NAME}} PUBLIC {library})
                 '''
         
-        include_directories += [f'''${{PROJECT_SOURCE_DIR}}/{i[:i.index("*")]}''' if "*" in i else f'''${{PROJECT_SOURCE_DIR}}/{i}''' for i in self.includes]
+        include_directories += [f'''${{PROJECT_SOURCE_DIR}}/{i[:i.index("*")]}''' if "*" in i else f'''${{PROJECT_SOURCE_DIR}}/{i}''' for i in self.container.includes]
         
         if len(include_directories) > 0:
             string_to_use += f'''
@@ -756,12 +711,12 @@ endforeach()
 '''
 
 
-        if len(self.advanced_options.extra_commands) > 0:
+        if len(self.container.advanced_options.extra_commands) > 0:
             string_to_use += f'''
 #------------ custom commands ----------------
             
 '''
-            for item in self.advanced_options.extra_commands.values():
+            for item in self.container.advanced_options.extra_commands.values():
                 string_to_use += f'''
     #custom command for alias {item.alias}...
                 
@@ -776,12 +731,12 @@ endforeach()
 '''
 
 
-        if len(self.advanced_options.additional_lines) > 0:
+        if len(self.container.advanced_options.additional_lines) > 0:
             string_to_use += f'''
 #------------ additional lines ---------------
 
 '''
-            for item in self.advanced_options.additional_lines:
+            for item in self.container.advanced_options.additional_lines:
                 my_str = "\n\t".join(item.lines)
                 string_to_use += f'''
     # additional lines for alias "{item.alias}"...
@@ -815,7 +770,7 @@ set(${{PROJECT_NAME}}_BUILD_TYPE ${{CMAKE_BUILD_TYPE}} CACHE INTERNAL "")
             QMessageBox.warning(self,"Cmake Version Warning!","Please fill the cmake version")
             return
         
-        if len(self.sources) == 0:
+        if len(self.container.sources) == 0:
             QMessageBox.warning(self,"Sources Warning!","Please add at least one source file")
             return
     
