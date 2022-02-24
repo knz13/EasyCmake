@@ -1,3 +1,4 @@
+import string
 from main_app_containers import *
 
 
@@ -481,6 +482,50 @@ include(GNUInstallDirs)
 include(ExternalProject)
 include(FetchContent)
 
+'''
+
+        if len(self.container.advanced_options.public_user_options) > 0:
+            string_to_use += f'''
+#adding options       
+     
+'''
+            for option in self.container.advanced_options.public_user_options.values():
+                if len(option.depends_on) > 0:
+                    string_to_use += f'''
+cmake_dependent_option({option.option_name} '''
+                else:
+                    string_to_use += f'''
+option("{option.option_name}" '''
+
+                if option.description != "":
+                    string_to_use += f'''"{option.description}" '''
+                
+                if option.default_value:
+                    string_to_use += f'''ON '''
+                else:
+                    string_to_use += f'''OFF '''
+                
+                if len(option.depends_on) > 0:
+                    string_to_use += f'''"'''
+                    for item in option.depends_on:
+                        string_to_use += item
+                        string_to_use += ";"
+                    string_to_use = string_to_use[:-1] 
+                    string_to_use += f'''" '''
+                    if not option.default_value:
+                        string_to_use += f'''ON'''
+                    else:
+                        string_to_use += f'''OFF'''
+                
+                if string_to_use[-1] == " ":
+                    string_to_use = string_to_use[:-1]
+                
+                string_to_use += f''')
+
+'''
+
+                
+        string_to_use += f'''
 #creating variables for ease of adding libraries
 set(DEPS_TO_BUILD )
 

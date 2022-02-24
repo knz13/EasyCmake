@@ -1,20 +1,24 @@
 from dataclasses import dataclass,field
 from typing import List,Dict
 from PyQt5.QtWidgets import *
-
+from PyQt5.QtCore import Qt
 
 
 @dataclass
 class PublicUserOption:
     alias: str=""
     option_name: str=""
+    description: str=""
+    depends_on: List[str] = field(default_factory=list)
     default_value: bool=True
     
     def add_to_dict(self,dict):
         
         dict["alias"] = self.alias
         dict["option_name"] = self.option_name
+        dict["description"] = self.description
         dict["default_value"] = self.default_value
+        dict["depends_on"] = self.depends_on
         
     def get_from_dict(self,dict):
         if "alias" in dict:
@@ -23,6 +27,10 @@ class PublicUserOption:
             self.option_name = dict["option_name"]
         if "default_value" in dict:
             self.default_value = dict["default_value"]
+        if "description" in dict:
+            self.description = dict["description"]
+        if "depends_on" in dict:
+            self.depends_on = dict["depends_on"]
     
     def get_dialog(self,master,options_already_added):
         dialog = QDialog(master)
@@ -47,6 +55,23 @@ class PublicUserOption:
         option_name_text = QLineEdit(self.option_name)
         option_name_text.textChanged.connect(lambda: self._get_name(option_name_text))
         
+        description_text = QTextEdit(self.description)
+        description_text.textChanged.connect(lambda: self._get_description(description_text))
+        
+        depends_on_list = QListWidget()
+        
+        for item in options_already_added:
+            list_item = QListWidgetItem()
+            list_item.setText(item)
+            list_item.setFlags(list_item.flags() | Qt.ItemIsUserCheckable)
+            if item in self.depends_on:
+                list_item.setCheckState(True)
+            else:
+                list_item.setCheckState(False)
+            depends_on_list.addItem(list_item)
+            
+        depends_on_list.itemChanged.connect(self._get_depends_on)
+        
         default_value_combo = QComboBox()
         default_value_combo.addItem("ON")
         default_value_combo.addItem("OFF")
@@ -58,9 +83,11 @@ class PublicUserOption:
             default_value_combo.setCurrentIndex(1)
         
         
-        layout.addRow("Alias",alias_text)
-        layout.addRow("Option Name",option_name_text)
+        layout.addRow("Alias*",alias_text)
+        layout.addRow("Option Name*",option_name_text)
         layout.addRow("Default Value",default_value_combo)
+        layout.addRow("Description",description_text)
+        layout.addRow("Depends On",depends_on_list)
         
         main_layout.addLayout(layout)
         main_layout.addLayout(buttons_layout)
@@ -103,4 +130,11 @@ class PublicUserOption:
             self.default_value = True
         else:
             self.default_value = False
+    def  _get_description(self,text: QTextEdit):
+        self.description = text.toPlainText()
         
+    def _get_depends_on(self,item : QListWidgetItem):
+        if item.text() in self.depends_on:
+            self.depends_on.pop(self.depends_on.index(item.text()))
+        else:
+            self.depends_on.append(item.text())

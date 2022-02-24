@@ -16,6 +16,7 @@ class AdvancedOptionsDialog(QDialog):
     def __init__(self,options: AdvancedOptions):
         super().__init__()
         
+        self.setWindowTitle("Advanced Options")
         self.advanced_options = options
         
         self._layout = QVBoxLayout()
@@ -235,7 +236,30 @@ class AdvancedOptionsDialog(QDialog):
             self._update_public_options()
             
     def _public_user_options_context_menu_delete(self):
-        self.advanced_options.public_user_options.pop(self._public_user_options.selectedItems()[0].text())
+        
+        item = self._public_user_options.selectedItems()[0].text()
+        
+        list_of_dependencies = []
+        for option in self.advanced_options.public_user_options.values():
+            if item in option.depends_on:
+                list_of_dependencies.append(option.alias)
+        
+        if len(list_of_dependencies) > 0:
+            
+            dialog = QMessageBox()
+            dialog.setWindowTitle("Warning!")
+            dialog.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            deps = "\n\t->".join(list_of_dependencies)
+            dialog.setText(f'''The following targets depend on "{item}"
+    ->"{deps}"
+Would you like to delete it anyway?                          
+''')
+            if dialog.exec_():
+                self.advanced_options.public_user_options.pop(item)
+            else:
+                return
+        else:
+            self.advanced_options.public_user_options.pop(item)
         self._update_public_options()
         
     def _public_user_options_context_menu_modify(self):
