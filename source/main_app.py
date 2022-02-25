@@ -1,4 +1,6 @@
+from posixpath import dirname
 import string
+from xml.etree.ElementInclude import include
 from main_app_containers import *
 
 
@@ -87,9 +89,13 @@ class EasyCmakeApp(QMainWindow):
         
         source_button_layout = QVBoxLayout()
         source_button_add_0 = QPushButton("Add Files")
+        source_button_add_0.setContextMenuPolicy(Qt.CustomContextMenu)
+        source_button_add_0.customContextMenuRequested.connect(lambda pos: self._custom_context_menu_for_option_addition(source_button_add_0,pos,lambda: self._add_source_files(True)))
         source_button_add_0.clicked.connect(self._add_source_files)
         
         source_button_add_1 = QPushButton("Add Directories")
+        source_button_add_1.setContextMenuPolicy(Qt.CustomContextMenu)
+        source_button_add_1.customContextMenuRequested.connect(lambda pos: self._custom_context_menu_for_option_addition(source_button_add_1,pos,lambda: self._add_source_dirs(True)))
         source_button_add_1.clicked.connect(self._add_source_dirs)
         
         source_button_layout.addWidget(source_button_add_0)
@@ -98,6 +104,8 @@ class EasyCmakeApp(QMainWindow):
         #include buttons
         include_button_layout = QVBoxLayout()
         include_button_add = QPushButton("Add Includes")
+        include_button_add.setContextMenuPolicy(Qt.CustomContextMenu)
+        include_button_add.customContextMenuRequested.connect(lambda pos: self._custom_context_menu_for_option_addition(include_button_add,pos,lambda: self._add_include_dirs(True)))
         include_button_add.clicked.connect(self._add_include_dirs)
         
         include_button_layout.addWidget(include_button_add)
@@ -149,13 +157,24 @@ class EasyCmakeApp(QMainWindow):
         
         
         
+    def _custom_context_menu_for_option_addition(self,caller,position,function):
         
+        if len(self.container.advanced_options.public_user_options) == 0:
+            return
+        
+        menu = QMenu(self)
+        
+        action = menu.addAction("Add for specific options")
+        action.triggered.connect(function)
+        
+        menu.exec_(caller.mapToGlobal(position))
         
         
     def _advanced_button_callback(self):
-        dialog = AdvancedOptionsDialog(deepcopy(self.container.advanced_options))
+        dialog = AdvancedOptionsDialog(deepcopy(self.container.advanced_options),self.container)
         if dialog.exec_():
             self.container.advanced_options = dialog.advanced_options
+            self._update_all()
     
     def _repo_list_context_menu_callback(self,position):
         
@@ -212,8 +231,26 @@ class EasyCmakeApp(QMainWindow):
         
         if not self._check_if_creating_dir_in_cache(self._instance_cache_location):
             self._check_if_creating_dir_in_cache(self._cache_location)
+        
+        
+    def _create_options_dialog_for_addition(self):
+        
+        dialog = QMessageBox(self)
+        
+        dialog.setWindowTitle("Options Message")
+        dialog.setText("Choose all the options that you want this choice to depend on.")
+        
+        list_of_choices = [False for i in self.container.advanced_options.public_user_options]
+        list_of_options = list(self.container.advanced_options.public_user_options.keys())
+        widget = create_clickable_list_widget(list_of_options,list_of_choices)
+        widget.itemChanged.connect(lambda item: create_options_dialog_for_addition_callback(item,list_of_options,list_of_choices))
+        
+        dialog.layout().addWidget(widget,0,0,1,dialog.layout().columnCount())
+        
+        return dialog,list_of_options,list_of_choices
+        
                 
-    def _add_source_files(self):
+    def _add_source_files(self,search_for_options=False):
         
         if self._creating_directory == "":
             QMessageBox.warning(self,"Warning!","Please choose a valid creating directory")
@@ -224,27 +261,69 @@ class EasyCmakeApp(QMainWindow):
         if files[0] == []:
             return
         
-        self.container.sources = self.container.sources + [os.path.relpath(i,self._creating_directory).replace("\\","/") for i in files[0]]
         
+        
+        
+        file_names = [os.path.relpath(i,self._creating_directory).replace("\\","/") for i in files[0]]
+        
+        
+        
+        
+        if search_for_options:
+            
+            dialog,options,choices = self._create_options_dialog_for_addition()
+            
+            dialog.exec_()
+            
+            for file in file_names:
+                file += "*depends_on="
+                for option,choice in zip(options,choices):
+                    if choice:
+                        file += option
+                        file += ","
+                file = file[:-1]
+                file += "*"
+        
+        self.container.sources = self.container.sources + file_names
         self._source_text.setText("\n".join(self.container.sources))
         
-    def _add_source_dirs(self):
+    def _add_source_dirs(self,search_for_options=False):
         
         if self._creating_directory == "":
             QMessageBox.warning(self,"Warning!","Please choose a valid creating directory")
             return
         
-        files = QFileDialog.getExistingDirectory(self,"Choose a directory",self._creating_directory)
+        dir = QFileDialog.getExistingDirectory(self,"Choose a directory",self._creating_directory)
         
-        if files == "":
+        if dir == "":
             return
         
-        self.container.sources.append(os.path.relpath(files,self._creating_directory).replace("\\","/"))
+        dir_name = os.path.relpath(dir,self._creating_directory).replace("\\","/")
         
+        
+        
+        if search_for_options:
+            
+            dialog,options,choices = self._create_options_dialog_for_addition()
+            
+            dialog.exec_()
+            
+            dir_name += "*depends_on="
+            for option,choice in zip(options,choices):
+                if choice:
+                    dir_name += option
+                    dir_name += ","
+            dir_name = dir_name[:-1]
+            dir_name += "*"
+        
+        
+        self.container.sources.append(dir_name)
         self._source_text.setText("\n".join(self.container.sources))
         
+        
+        
     
-    def _add_include_dirs(self):
+    def _add_include_dirs(self,search_for_options=False):
         if self._creating_directory == "":
             QMessageBox.warning(self,"Warning!","Please choose a valid creating directory")
             return
@@ -254,7 +333,22 @@ class EasyCmakeApp(QMainWindow):
         if files == "":
             return
         
-        self.container.includes.append(os.path.relpath(files,self._creating_directory).replace("\\","/"))
+        include_dir = os.path.relpath(files,self._creating_directory).replace("\\","/")
+        
+        if search_for_options:
+            
+            dialog,options,choices = self._create_options_dialog_for_addition()
+            
+            dialog.exec_()
+            
+            include_dir += "*depends_on="
+            for option,choice in zip(options,choices):
+                if choice:
+                    include_dir += option
+                    include_dir += ","
+            include_dir = include_dir[:-1]
+            include_dir += "*" 
+        self.container.includes.append(include_dir)
         
         self._includes_text.setText("\n".join(self.container.includes))
         
@@ -269,7 +363,7 @@ class EasyCmakeApp(QMainWindow):
         
     def _create_new_repo_callback(self):
         repo = Repository()
-        dialog = RepositoryDialog(repo)
+        dialog = RepositoryDialog(repo,self.container.advanced_options.public_user_options)
         
         if dialog.exec_():
             self.container.repositories[repo.name] = repo
@@ -278,10 +372,12 @@ class EasyCmakeApp(QMainWindow):
 
     def _repo_modify_callback(self):
         text = self._repo_list_widget.selectedItems()[0].text()
+        if "*" in text:
+            text = text[:text.index("*")-1]
         if self.container.list_of_external_repo_names[text] == "repository":
             repo = deepcopy(self.container.repositories[text])
             repo_name = repo.name
-            dialog = RepositoryDialog(repo)
+            dialog = RepositoryDialog(repo,self.container.advanced_options.public_user_options)
             
             if dialog.exec_():
                 self.container.repositories.pop(repo_name)
@@ -305,6 +401,8 @@ class EasyCmakeApp(QMainWindow):
 
     def _repo_delete_callback(self):
         repo_name = self._repo_list_widget.selectedItems()[0].text()
+        if "*" in repo_name:
+            repo_name = repo_name[:repo_name.index("*")-1]
         if self.container.list_of_external_repo_names[repo_name] == "repository":
             self.container.repositories.pop(repo_name)
         if self.container.list_of_external_repo_names[repo_name] == "package":
@@ -317,7 +415,13 @@ class EasyCmakeApp(QMainWindow):
         self._repo_list_widget.clear()
         for item in self.container.list_of_external_repo_names:
             this_item = QListWidgetItem()
-            this_item.setText(item)
+            if self.container.list_of_external_repo_names[item] == "repository":
+                if self.container.repositories[item].depends_on != "":
+                    this_item.setText(item + f''' *{self.container.repositories[item].depends_on}*''')
+                else:
+                    this_item.setText(item)
+            else:    
+                this_item.setText(item)
             this_item.setToolTip(self.container.list_of_external_repo_names[item])
             self._repo_list_widget.addItem(this_item)
             
@@ -443,12 +547,24 @@ class EasyCmakeApp(QMainWindow):
             file.write(json.dumps(current_dict))
             
             file.close()
+           
+    def _read_text_options(self,text: str):
+        
+        if not "*" in text:
+            return False,{}
+        
+        options = text[text.index("*"):len(text)-1]
             
     def _get_cmake_lists_text(self,directory : str):
         source_globs_to_add = []
         source_files = []
         include_directories = []
         libraries_to_link = {}
+        list_of_commands_per_option = {"":[]}
+        
+        for item in self.container.advanced_options.public_user_options:
+            list_of_commands_per_option[item] = []
+        
         any_dependencies = False
         
         
@@ -492,10 +608,10 @@ include(FetchContent)
             for option in self.container.advanced_options.public_user_options.values():
                 if len(option.depends_on) > 0:
                     string_to_use += f'''
-cmake_dependent_option({option.option_name} '''
+cmake_dependent_option({option.option_name.upper()} '''
                 else:
                     string_to_use += f'''
-option("{option.option_name}" '''
+option("{option.option_name.upper()}" '''
 
                 if option.description != "":
                     string_to_use += f'''"{option.description}" '''
@@ -526,29 +642,78 @@ option("{option.option_name}" '''
 
                 
         string_to_use += f'''
-#creating variables for ease of adding libraries
-set(DEPS_TO_BUILD )
-
 #project name
 project("{self._executable_name.text()}")
+
+#creating variables for ease of adding libraries
+set(${{PROJECT_NAME}}_DEPS_TO_BUILD )
+set(${{PROJECT_NAME}}_SOURCE_FILES )
+set(${{PROJECT_NAME}}_INCLUDES )
+set(${{PROJECT_NAME}}_LIBRARIES )
+
         
         '''
         if len(self.container.repositories) > 0:
             
-            string_to_use += f'''
             
-#-------------- external repositories ---------------
-            
-            '''
             for repo_name in self.container.repositories:
                 repo = self.container.repositories[repo_name]
+                
+                has_options,options_dict = self._read_text_options(repo_name)
+                repo_has_option = has_options and "depends_on" in options_dict
+                
+                if repo.depends_on == "":
+                    list_of_lines = list_of_commands_per_option[""]
+                    
+                else:
+                    list_of_lines = list_of_commands_per_option[repo.depends_on]
+                
+                list_of_lines.append(f'''
+
+# repository download and settings for {repo_name.lower()}...
+
+    dir_exists({repo_name.lower()}_exists ${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()})
+''')
+                
                 library_locations = []
-                for item in repo.includes:
-                    if item == "./":
-                       include_directories.append(f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}''')
-                    else:
-                        include_directories.append(f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{item}''')
+                
+                if len(repo.includes) > 0:
+                    
+                    list_of_lines.append(f'''
+
+    # adding includes:
+
+''')
+                    
+                    for item in repo.includes:
+                        if item == "./":
+                            list_of_lines.append(f'''
+        list(APPEND ${{PROJECT_NAME}}_INCLUDES ${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()})
+''')
+                        else:
+                            list_of_lines.append(f'''
+        list(APPEND ${{PROJECT_NAME}}_INCLUDES ${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{item})
+''')
+                            
+                if len(repo.sources_to_add) > 0:
+                    list_of_lines.append(f'''
+    
+    # adding sources
+
+''')
+                    for source in repo.sources_to_add:
+                        list_of_lines.append(f'''
+        list(APPEND ${{PROJECT_NAME}}_SOURCE_FILES ${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/source)
+''')
+                            
                 if len(repo.libraries) > 0:
+                    
+                    list_of_lines.append(f'''
+
+    # adding libraries
+
+''')
+                    
                     libraries_to_link[repo_name] = []
                     index = 0
                     for lib_file in repo.libraries:
@@ -557,101 +722,167 @@ project("{self._executable_name.text()}")
                         lib_location = lib_file[:lib_file.rfind("/")]
                         if lib_file[len(lib_file) - 1] == "*":
                             lib_name = lib_name[:len(lib_name)-1]
-                            libraries_to_link[repo_name].append(f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{lib_location}/${{CMAKE_STATIC_LIBRARY_PREFIX}}{lib_name}$<$<CONFIG:Debug>:d>${{CMAKE_STATIC_LIBRARY_SUFFIX}}''')
+                            list_of_lines.append(f'''
+        list(APPEND ${{PROJECT_NAME}}_LIBRARIES ${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{lib_location}/${{CMAKE_STATIC_LIBRARY_PREFIX}}{lib_name}$<$<CONFIG:Debug>:d>${{CMAKE_STATIC_LIBRARY_SUFFIX}})
+''')
                         else:
-                            libraries_to_link[repo_name].append(f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{lib_location}/${{CMAKE_STATIC_LIBRARY_PREFIX}}{lib_name}${{CMAKE_STATIC_LIBRARY_SUFFIX}}''')
-                        library_locations.append(libraries_to_link[repo_name][index])
+                            list_of_lines.append(f'''
+        list(APPEND ${{PROJECT_NAME}}_LIBRARIES ${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{lib_location}/${{CMAKE_STATIC_LIBRARY_PREFIX}}{lib_name}${{CMAKE_STATIC_LIBRARY_SUFFIX}})
+''')
+                        
                         index += 1
                         
                         
                 if repo.should_build:
-                    string_to_use += f'''
+                    list_of_lines.append(f'''
 
-# repository download for {repo_name.lower()}...
-                    
-dir_exists({repo_name.lower()}_exists ${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()})
-
-if(NOT ${{{repo_name.lower()}_exists}} OR NOT ${{${{PROJECT_NAME}}_BUILD_TYPE}} STREQUAL ${{CMAKE_BUILD_TYPE}})
-    ExternalProject_Add({repo_name.upper()}
-    GIT_REPOSITORY {repo.git_repo}
-    GIT_TAG {repo.git_tag}
-    CMAKE_ARGS  -DCMAKE_INSTALL_PREFIX:PATH=${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}
-                -DCMAKE_BUILD_TYPE=${{CMAKE_BUILD_TYPE}}'''
+    if(NOT ${{{repo_name.lower()}_exists}} OR NOT ${{${{PROJECT_NAME}}_BUILD_TYPE}} STREQUAL ${{CMAKE_BUILD_TYPE}})
+        ExternalProject_Add({repo_name.upper()}
+        GIT_REPOSITORY {repo.git_repo}
+        GIT_TAG {repo.git_tag}
+        CMAKE_ARGS  -DCMAKE_INSTALL_PREFIX:PATH=${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}
+                    -DCMAKE_BUILD_TYPE=${{CMAKE_BUILD_TYPE}}''')
                     for arg in repo.cmake_args:
-                        string_to_use += f'''
-                -D{arg}
-                        '''
-                    string_to_use += f'''
-    BUILD_BYPRODUCTS {" ".join(library_locations)}
-    )
+                        list_of_lines.append(f'''
+                    -D{arg}
+                        ''')
+                    list_of_lines.append(f'''
+        BUILD_BYPRODUCTS {" ".join(library_locations)}
+        )
 
-    list(APPEND DEPS_TO_BUILD {repo_name.upper()})
+        list(APPEND ${{PROJECT_NAME}}_DEPS_TO_BUILD {repo_name.upper()})
 
-endif()
+    endif()
 
 
-                    '''
+''')
                     any_dependencies = True
                     
                 else:
-                    string_to_use += f'''
+                    list_of_lines.append(f'''
 
-# repository download for {repo_name.lower()}...
+    if(NOT ${{{repo_name.lower()}_exists}})
+        FetchContent_Declare({repo_name.upper()}
+        GIT_REPOSITORY {repo.git_repo}
+        GIT_TAG {repo.git_tag}
+        SOURCE_DIR ${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}
+        )
+
+        FetchContent_MakeAvailable({repo_name.upper()})
+
+    endif()
                     
-dir_exists({repo_name.lower()}_exists ${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()})
-
-if(NOT ${{{repo_name.lower()}_exists}})
-    FetchContent_Declare({repo_name.upper()}
-    GIT_REPOSITORY {repo.git_repo}
-    GIT_TAG {repo.git_tag}
-    SOURCE_DIR ${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}
-    )
-
-    FetchContent_MakeAvailable({repo_name.upper()})
-
-endif()
-                    
-                    '''
+''')
         
         if len(self.container.installed_packages) > 0:
-            string_to_use += f'''
-#finding packages...            
-'''
+            pass
         
         for package_name in self.container.installed_packages:
             package = self.container.installed_packages[package_name]
+            
+            has_options,options_dict = self._read_text_options(package.name)
+            package_has_option = has_options and "depends_on" in options_dict
+            
+            if package_has_option:
+                
+                list_of_lines = list_of_commands_per_option[options_dict["depends_on"]]
+            else:
+                list_of_lines = list_of_commands_per_option[""]
+            
+            list_of_lines.append(f'''
+
+# finding package and adding settings for alias {package.name}...
+
+''')
+            
             addition_string = f'''find_package({package_name}'''
             if len(package.extra_args) > 0:
                 addition_string += f''' {package.extra_args}'''
             if package.required:
                 addition_string += " REQUIRED"
             addition_string += ")"
-            string_to_use += f'''
-{addition_string}
-'''
+            list_of_lines.append(f'''
+    {addition_string}
+
+''')
 
             if len(package.includes) > 0:
+                list_of_lines.append(f'''
+    # adding includes:
+
+''')
                 for item in package.includes:
-                    include_directories.append(item)
+                    list_of_lines.append(f'''
+        list(APPEND ${{PROJECT_NAME}}_INCLUDES {item})
+''')
             if len(package.libraries) > 0:
+                list_of_lines.append(f'''
+    # adding libraries:
+
+''')
                 libraries_to_link[package.name] = []
                 for item in package.libraries:
-                    libraries_to_link[package.name].append(item)
+                    list_of_lines.append(f'''
+        list(APPEND ${{PROJECT_NAME}}_LIBRARIES {item})
+''')
+        
+        
         
         
         index = 1
+        
+        
+        
+        
         for source_file in self.container.sources:
+            
+            has_options,options_dict = self._read_text_options(source_file)
+            file_has_option = has_options and "depends_on" in options_dict
+            
+            if file_has_option:
+                
+                list_of_lines = list_of_commands_per_option[options_dict["depends_on"]]
+            else:
+                list_of_lines = list_of_commands_per_option[""]
+            
+            list_of_lines.append(f'''
+''')
+            
             if os.path.isdir(source_file):
                 path = os.path.relpath(source_file,directory).replace("\\","/")
-                string_to_use += f'''
-file(GLOB SRC_FILES_{index} ${{PROJECT_SOURCE_DIR}}/{path} *.cpp *.cc *.c)'''
+                list_of_lines.append(f'''
+file(GLOB SRC_FILES_{index} ${{PROJECT_SOURCE_DIR}}/{path} *.cpp *.cc *.c)
+list(APPEND ${{PROJECT_NAME}}_SOURCE_FILES ${{SRC_FILES_{index}}})
+''')
                 source_globs_to_add.append(f'''${{SRC_FILES_{index}}}''')
                 index += 1
             else:
-                source_files.append(f'''${{PROJECT_SOURCE_DIR}}/''' + source_file.replace("\\","/"))
+                list_of_lines.append(f'''
+list(APPEND ${{PROJECT_NAME}}_SOURCE_FILES ${{PROJECT_SOURCE_DIR}}/''' + source_file.replace("\\","/") + f''')
+''')
+
+        for name,commands in list_of_commands_per_option.items():
+            if name != "":
+                for command in commands:
+                    if command == commands[0]:
+                        command = "\t" + command
+                    command.replace("\n","\n\t")
+
+                
+                newline = "\n"
+                string_to_use += f'''
+
+if({name.upper()})
+
+{(newline).join(commands)}
+
+endif()
+
+'''
+            
+        for command in list_of_commands_per_option[""]:
+            string_to_use += command
         
-        source_files_string = "\n\t".join(source_files)
-        source_file_globs = "\n\t".join(source_globs_to_add)
         if not self._create_library_checkbox.isChecked():
             string_to_use += f'''
 
@@ -664,15 +895,9 @@ add_executable(${{PROJECT_NAME}}
 #creating library
 add_library(${{PROJECT_NAME}}
 '''
-        if len(source_file_globs) > 0:
-            string_to_use += f'''
-    #source globs...
-    {source_file_globs}
-    
-'''     
+        
         string_to_use += f'''
-    #source files...
-    {source_files_string}
+        ${{${{PROJECT_NAME}}_SOURCE_FILES}}
 )
         
 #setting c/cpp standard
@@ -723,43 +948,50 @@ endforeach()
 
 
             '''
-
+            
         if len(libraries_to_link) > 0:
             string_to_use += f'''
 # ------------- linking libraries -------------
-            '''
-            
-            for item in libraries_to_link:
-                string_to_use += f'''
 
-    #linking for {item}...
+    target_link_libraries(${{PROJECT_NAME}} PUBLIC ${{${{PROJECT_NAME}}_LIBRARIES}})
 
 '''
-                for library in libraries_to_link[item]:
-                    string_to_use += f'''
-    target_link_libraries(${{PROJECT_NAME}} PUBLIC {library})
-                '''
+            
         
-        include_directories += [f'''${{PROJECT_SOURCE_DIR}}/{i[:i.index("*")]}''' if "*" in i else f'''${{PROJECT_SOURCE_DIR}}/{i}''' for i in self.container.includes]
+        include_directories += [i for i in self.container.includes]
         
         if len(include_directories) > 0:
+            
+            
+            
             string_to_use += f'''
 
 #------------ include directories -------------
 
-            '''    
-            
-            for item in include_directories:
-                string_to_use += f'''
-    target_include_directories(${{PROJECT_NAME}} PUBLIC {item})
-    
-'''
+'''         
 
+            for item in self.container.includes:
+                 if "*" in item:
+                    string_to_use += f'''
+    list(APPEND ${{PROJECT_NAME}}_INCLUDES ${{PROJECT_SOURCE_DIR}}/{item[:item.index("*")]})
+
+'''
+                 else:
+                    string_to_use +=  f'''
+    list(APPEND ${{PROJECT_NAME}}_INCLUDES ${{PROJECT_SOURCE_DIR}}/{item})
+
+''' 
+
+
+            string_to_use += f'''
+    target_include_directories(${{PROJECT_NAME}} PUBLIC ${{${{PROJECT_NAME}}_INCLUDES}})
+
+'''
 
         if len(self.container.advanced_options.extra_commands) > 0:
             string_to_use += f'''
 #------------ custom commands ----------------
-            
+
 '''
             for item in self.container.advanced_options.extra_commands.values():
                 string_to_use += f'''
@@ -851,4 +1083,5 @@ set(${{PROJECT_NAME}}_BUILD_TYPE ${{CMAKE_BUILD_TYPE}} CACHE INTERNAL "")
         
         QMessageBox.warning(self,"Finish","Writing Done!")
 
-    
+def create_options_dialog_for_addition_callback(item:QListWidgetItem,list_of_options,list_of_choices):
+    list_of_choices[list_of_options.index(item.text())] = item.checkState()

@@ -1,4 +1,5 @@
 
+from cgi import test
 from select import select
 from tokenize import maybe
 from advanced_options import *
@@ -13,11 +14,13 @@ class AdvancedOptionsDialog(QDialog):
     
     
     
-    def __init__(self,options: AdvancedOptions):
+    def __init__(self,options : AdvancedOptions,container):
         super().__init__()
         
         self.setWindowTitle("Advanced Options")
         self.advanced_options = options
+        self.container = container
+        
         
         self._layout = QVBoxLayout()
         
@@ -239,26 +242,46 @@ class AdvancedOptionsDialog(QDialog):
         
         item = self._public_user_options.selectedItems()[0].text()
         
-        list_of_dependencies = []
+        list_of_dependencies = {}
         for option in self.advanced_options.public_user_options.values():
             if item in option.depends_on:
-                list_of_dependencies.append(option.alias)
+                if "public options" not in list_of_dependencies:
+                    list_of_dependencies["public options"] = []
+                list_of_dependencies["public options"].append(option.alias)
+                
+        for repo in self.container.repositories.values():
+            if repo.depends_on == item:
+                if "repositories" not in list_of_dependencies:
+                    list_of_dependencies["repositories"] = []
+                list_of_dependencies["repositories"].append(repo.name)
         
         if len(list_of_dependencies) > 0:
             
             dialog = QMessageBox()
             dialog.setWindowTitle("Warning!")
             dialog.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-            deps = "\n\t->".join(list_of_dependencies)
+            deps = ""
+            newline = "\n\t->"    
+            for type in list_of_dependencies:
+                deps += f'''
+{type}:
+    ->{newline.join(list_of_dependencies[type])}
+'''         
             dialog.setText(f'''The following targets depend on "{item}"
-    ->"{deps}"
+{deps}
 Would you like to delete it anyway?                          
 ''')
             if dialog.exec_():
                 self.advanced_options.public_user_options.pop(item)
+                for repo in self.container.repositories.values():
+                    if repo.depends_on == item:
+                        repo.depends_on = ""
             else:
                 return
         else:
+            for repo in self.container.repositories.values():
+                if repo.depends_on == item:
+                    repo.depends_on = ""
             self.advanced_options.public_user_options.pop(item)
         self._update_public_options()
         
@@ -273,6 +296,10 @@ Would you like to delete it anyway?
         if dialog.exec_():
             
             self.advanced_options.public_user_options[test_option.alias] = test_option
+            
+            for item in self.container.repositories.values():
+                if item.depends_on == original_option.alias:
+                    item.depends_on = test_option.alias
             
             self._update_public_options()
         else:

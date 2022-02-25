@@ -3,6 +3,22 @@ from typing import List,Dict
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import Qt
 
+def create_clickable_list_widget(list_of_names,list_of_states):
+    list = QListWidget()
+    
+    index = 0
+    for item in list_of_names:
+        list_item = QListWidgetItem()
+        list_item.setText(item)
+        list_item.setFlags(list_item.flags() | Qt.ItemIsUserCheckable)
+        if list_of_states[index]:
+            list_item.setCheckState(True)
+        else:
+            list_item.setCheckState(False)
+        list.addItem(list_item)
+        index +=1
+    return list
+
 
 @dataclass
 class PublicUserOption:
@@ -32,6 +48,8 @@ class PublicUserOption:
         if "depends_on" in dict:
             self.depends_on = dict["depends_on"]
     
+    
+    
     def get_dialog(self,master,options_already_added):
         dialog = QDialog(master)
         
@@ -58,18 +76,7 @@ class PublicUserOption:
         description_text = QTextEdit(self.description)
         description_text.textChanged.connect(lambda: self._get_description(description_text))
         
-        depends_on_list = QListWidget()
-        
-        for item in options_already_added:
-            list_item = QListWidgetItem()
-            list_item.setText(item)
-            list_item.setFlags(list_item.flags() | Qt.ItemIsUserCheckable)
-            if item in self.depends_on:
-                list_item.setCheckState(True)
-            else:
-                list_item.setCheckState(False)
-            depends_on_list.addItem(list_item)
-            
+        depends_on_list = create_clickable_list_widget(options_already_added.keys(),[True if x == y else False for x,y in zip(options_already_added.keys(),self.depends_on)])
         depends_on_list.itemChanged.connect(self._get_depends_on)
         
         default_value_combo = QComboBox()
