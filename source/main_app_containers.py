@@ -83,5 +83,7 @@ class MainAppData:
                  
         if "advanced_options" in dict and len(dict["advanced_options"]) > 0:
             self.advanced_options.get_from_dict(dict["advanced_options"])
+        
+        
             
             

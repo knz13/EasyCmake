@@ -15,6 +15,7 @@ class EasyCmakeApp(QMainWindow):
     _cache_location : str = ""
     _creating_directory: str = ""
     _repository_window : QDialog = field(default_factory=QDialog)
+    _saved_configurations :Dict = field(default_factory=dict)
     _layout : QFormLayout = field(default_factory=QFormLayout)
     _added_modify_parts: bool = False
     _last_item_in_modifying: str = ""
@@ -150,12 +151,95 @@ class EasyCmakeApp(QMainWindow):
         
         menuBar = self.menuBar()
         
-        menuBar.addMenu(QMenu("menu"))
+        menu = menuBar.addMenu("File")
+        save_action = menu.addAction("Save Configuration")
+        save_action.triggered.connect(self._save_custom_config)
+        load_action = menu.addAction("Load Configuration")
+        load_action.triggered.connect(self._load_custom_config)
     
         
         self.setCentralWidget(scroll)
         
+    def _get_from_dict(self,dict):
+        if "create_library" in dict: 
+            self._create_library_checkbox.setChecked(dict["create_library"])
+        if "executable_name" in dict:
+            self._executable_name.setText(dict["executable_name"])
+        if "cpp_version" in dict:
+            self._cpp_standard_text.setCurrentIndex(self._cpp_standard_text.findText(dict["cpp_version"]))
+        if "cmake_version" in dict:
+            self._cmake_version_text.setText(dict["cmake_version"])
+            
+        self.container.get_from_dict(dict)
         
+        self._update_all()
+        
+    def _add_to_dict(self,dict):
+        dict["executable_name"] = self._executable_name.text()
+        
+        dict["create_library"] = self._create_library_checkbox.isChecked()
+
+        dict["cpp_version"] = self._cpp_standard_text.currentText()
+        
+        dict["cmake_version"] = self._cmake_version_text.text()     
+                
+        self.container.add_to_dict(dict)
+    
+    def _load_custom_config(self): #todo
+        if len(self._saved_configurations) == 0:
+            
+            QMessageBox.warning(self,"Error!","No save configurations were found")
+            
+            return
+            
+        
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("Load Choice")
+        dialog.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
+        
+        widget = QListWidget()
+
+        for config_name in self._saved_configurations:
+            widget.addItem(config_name)
+        
+        
+        dialog.layout().addWidget(widget,0,0,1,dialog.layout().columnCount())
+
+        if dialog.exec() == QMessageBox.Ok:
+            self._get_from_dict(self._saved_configurations[widget.selectedItems()[0].text()])
+            
+            
+        
+        
+        
+
+    def _save_custom_config(self): #todo
+        
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("Save Location")
+        dialog.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
+        
+        layout = QFormLayout()
+        text = QLineEdit()
+        widget = QWidget()
+        
+        layout.addRow("Save Name:",text)
+        
+        widget.setLayout(layout)
+        
+        dialog.layout().addWidget(widget,0,0,1,dialog.layout().columnCount())
+        
+        if dialog.exec_() == QMessageBox.Ok:
+            
+            saving_dict = {}
+            self._add_to_dict(saving_dict)
+            
+            self._saved_configurations[text.text()] = saving_dict
+            
+        else:
+            pass
+            
+            
         
     def _custom_context_menu_for_option_addition(self,caller,position,function):
         
@@ -439,6 +523,8 @@ class EasyCmakeApp(QMainWindow):
         if os.path.exists(self._instance_cache_location):
             os.remove(self._instance_cache_location)
 
+        self._save_to_cache(self._cache_location)
+
         return super().closeEvent(event)
     
     def _update_all(self):
@@ -467,7 +553,7 @@ class EasyCmakeApp(QMainWindow):
         file.close()
         
         
-        if self._creating_directory in saved_files_dict:
+        if self._creating_directory in saved_files_dict["Files"]:
             if cache_location == self._cache_location:
                 msg = QMessageBox()
                 msg.setIcon(QMessageBox.Question)
@@ -487,40 +573,38 @@ class EasyCmakeApp(QMainWindow):
         self._repo_list_widget.clear()
         self.container.clear()
             
-        my_settings = saved_files_dict[self._creating_directory]
+        my_settings = saved_files_dict["Files"][self._creating_directory]
         
-        if "create_library" in my_settings: 
-            self._create_library_checkbox.setChecked(my_settings["create_library"])
-        if "executable_name" in my_settings:
-            self._executable_name.setText(my_settings["executable_name"])
-        if "cpp_version" in my_settings:
-            self._cpp_standard_text.setCurrentIndex(self._cpp_standard_text.findText(my_settings["cpp_version"]))
-        if "cmake_version" in my_settings:
-            self._cmake_version_text.setText(my_settings["cmake_version"])
-        
-        self.container.get_from_dict(my_settings)
+        self._get_from_dict(my_settings)
            
         self._update_all()
+        
+        if "Configurations" in saved_files_dict:
+            my_configs = saved_files_dict["Configurations"]
+            
+            for config_name,my_dict in my_configs.items():
+                self._saved_configurations[config_name] = my_dict
+        
         
         return True
     
     def _save_to_cache(self,location):
         
         saving_dict = {
-            "create_library":self._create_library_checkbox.isChecked(),
-            "executable_name":self._executable_name.text(),
-            "cpp_version":self._cpp_standard_text.currentText(),
-            "cmake_version":self._cmake_version_text.text()
+            
         }
         
-        self.container.add_to_dict(saving_dict)
+        self._add_to_dict(saving_dict)
+        
         
         file = open(location,"r")
         
         try:
             current_dict = json.load(file)
             
-            current_dict[self._creating_directory] = saving_dict
+            current_dict["Configurations"] = self._saved_configurations
+            
+            current_dict["Files"][self._creating_directory] = saving_dict
             
             file.close()
             
@@ -534,9 +618,10 @@ class EasyCmakeApp(QMainWindow):
         
         except json.JSONDecodeError:
             
-            current_dict = {}
+            current_dict = {"Files":{},"Configurations":{}}
+            current_dict["Configurations"] = self._saved_configurations
             
-            current_dict[self._creating_directory] = saving_dict
+            current_dict["Files"][self._creating_directory] = saving_dict
             
             
             file.close()
