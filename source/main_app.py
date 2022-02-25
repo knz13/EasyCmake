@@ -638,6 +638,7 @@ class EasyCmakeApp(QMainWindow):
         if not "*" in text:
             return False,{}
         
+        
         options = text[text.index("*"):len(text)-1]
             
     def _get_cmake_lists_text(self,directory : str):
@@ -693,7 +694,7 @@ include(FetchContent)
             for option in self.container.advanced_options.public_user_options.values():
                 if len(option.depends_on) > 0:
                     string_to_use += f'''
-cmake_dependent_option({option.option_name.upper()} '''
+cmake_dependent_option("{option.option_name.upper()}" '''
                 else:
                     string_to_use += f'''
 option("{option.option_name.upper()}" '''
@@ -948,18 +949,32 @@ list(APPEND ${{PROJECT_NAME}}_SOURCE_FILES ${{PROJECT_SOURCE_DIR}}/''' + source_
 
         for name,commands in list_of_commands_per_option.items():
             if name != "":
+                list_of_commands_additions = []
                 for command in commands:
                     if command == commands[0]:
                         command = "\t" + command
-                    command.replace("\n","\n\t")
-
+                    command = command.replace("\n","\n\t")
+                    list_of_commands_additions.append(command)
                 
+                list_of_source_additions = []
+                for source_file in self.container.advanced_options.public_user_options[name].option_specific_source_files:
+                    list_of_source_additions.append(f'''
+    list(APPEND ${{PROJECT_NAME}}_SOURCE_FILES ${{PROJECT_SOURCE_DIR}}/{source_file})
+
+''')
+                    
+
+                tab = "\t"
                 newline = "\n"
                 string_to_use += f'''
 
 if({name.upper()})
 
-{(newline).join(commands)}
+    #adding sources specific to this option
+    
+    {(newline).join(list_of_source_additions)}
+
+{(newline).join(list_of_commands_additions)}
 
 endif()
 

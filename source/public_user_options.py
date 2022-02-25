@@ -25,6 +25,7 @@ class PublicUserOption:
     alias: str=""
     option_name: str=""
     description: str=""
+    option_specific_source_files: List[str] = field(default_factory=list)
     depends_on: List[str] = field(default_factory=list)
     default_value: bool=True
     
@@ -35,6 +36,7 @@ class PublicUserOption:
         dict["description"] = self.description
         dict["default_value"] = self.default_value
         dict["depends_on"] = self.depends_on
+        dict["option_specific_sources"] = self.option_specific_source_files
         
     def get_from_dict(self,dict):
         if "alias" in dict:
@@ -47,6 +49,8 @@ class PublicUserOption:
             self.description = dict["description"]
         if "depends_on" in dict:
             self.depends_on = dict["depends_on"]
+        if "option_specific_sources" in dict:
+            self.option_specific_source_files = dict["option_specific_sources"]
     
     
     
@@ -76,6 +80,9 @@ class PublicUserOption:
         description_text = QTextEdit(self.description)
         description_text.textChanged.connect(lambda: self._get_description(description_text))
         
+        option_sources_text = QTextEdit("\n".join(self.option_specific_source_files))
+        option_sources_text.textChanged.connect(lambda: self._get_sources(option_sources_text))
+        
         depends_on_list = create_clickable_list_widget(options_already_added.keys(),[True if x == y else False for x,y in zip(options_already_added.keys(),self.depends_on)])
         depends_on_list.itemChanged.connect(self._get_depends_on)
         
@@ -94,7 +101,9 @@ class PublicUserOption:
         layout.addRow("Option Name*",option_name_text)
         layout.addRow("Default Value",default_value_combo)
         layout.addRow("Description",description_text)
-        layout.addRow("Depends On",depends_on_list)
+        layout.addRow("Option Specific\nSource Files",option_sources_text)
+        layout.addRow("Depends on",depends_on_list)
+        
         
         main_layout.addLayout(layout)
         main_layout.addLayout(buttons_layout)
@@ -127,6 +136,9 @@ class PublicUserOption:
                 return
             
         dialog.accept()
+
+    def _get_sources(self,text : QTextEdit):
+        self.option_specific_source_files = text.toPlainText().split()
 
     def _get_alias(self,text : QLineEdit):
         self.alias = text.text()
