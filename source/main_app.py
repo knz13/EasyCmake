@@ -808,13 +808,20 @@ set(${{PROJECT_NAME}}_LIBRARIES )
                         lib_location = lib_file[:lib_file.rfind("/")]
                         if lib_file[len(lib_file) - 1] == "*":
                             lib_name = lib_name[:len(lib_name)-1]
+                            file_name = f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{lib_location}/${{CMAKE_STATIC_LIBRARY_PREFIX}}{lib_name}$<$<CONFIG:Debug>:d>${{CMAKE_STATIC_LIBRARY_SUFFIX}}'''
+                            libraries_to_link[repo_name].append(file_name)
                             list_of_lines.append(f'''
-        list(APPEND ${{PROJECT_NAME}}_LIBRARIES ${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{lib_location}/${{CMAKE_STATIC_LIBRARY_PREFIX}}{lib_name}$<$<CONFIG:Debug>:d>${{CMAKE_STATIC_LIBRARY_SUFFIX}})
+        list(APPEND ${{PROJECT_NAME}}_LIBRARIES {file_name})
 ''')
+                            library_locations.append(file_name)
+                            
                         else:
+                            file_name = f'''${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{lib_location}/${{CMAKE_STATIC_LIBRARY_PREFIX}}{lib_name}${{CMAKE_STATIC_LIBRARY_SUFFIX}}'''
+                            libraries_to_link[repo_name].append(file_name)
                             list_of_lines.append(f'''
-        list(APPEND ${{PROJECT_NAME}}_LIBRARIES ${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{lib_location}/${{CMAKE_STATIC_LIBRARY_PREFIX}}{lib_name}${{CMAKE_STATIC_LIBRARY_SUFFIX}})
+        list(APPEND ${{PROJECT_NAME}}_LIBRARIES {file_name})
 ''')
+                            library_locations.append(file_name)
                         
                         index += 1
                         
@@ -968,7 +975,11 @@ list(APPEND ${{PROJECT_NAME}}_SOURCE_FILES ${{PROJECT_SOURCE_DIR}}/''' + source_
                 newline = "\n"
                 string_to_use += f'''
 
-if({name.upper()})
+if({self.container.advanced_options.public_user_options[name].option_name.upper()})
+
+    #adding compiler definition for this option
+    
+    add_compile_definitions({self.container.advanced_options.public_user_options[name].option_name.upper()})
 
     #adding sources specific to this option
     
@@ -1029,18 +1040,22 @@ install(DIRECTORY {item[:item.index("*")]} DESTINATION {installation_location} F
 #installing libraries from dependencies...
 
 '''
+
             for item in libraries_to_link:
                 if item not in self.container.installed_packages:
                     for lib_file in libraries_to_link[item]:
                         string_to_use += f'''
     install(FILES {lib_file} DESTINATION lib)
 '''
+            string_to_use += f'''
+include(CPack)        
+'''
         
         if any_dependencies:
             string_to_use += f'''
 #adding dependencies
 
-foreach(X ${{DEPS_TO_BUILD}})
+foreach(X ${{${{PROJECT_NAME}}_DEPS_TO_BUILD}})
 
     add_dependencies(${{PROJECT_NAME}} ${{X}})
 
