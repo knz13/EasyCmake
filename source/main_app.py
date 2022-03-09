@@ -789,7 +789,7 @@ set(${{PROJECT_NAME}}_LIBRARIES )
 ''')
                     for source in repo.sources_to_add:
                         list_of_lines.append(f'''
-        list(APPEND ${{PROJECT_NAME}}_SOURCE_FILES ${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/source)
+        list(APPEND ${{PROJECT_NAME}}_SOURCE_FILES ${{PROJECT_SOURCE_DIR}}/vendor/{repo_name.lower()}/{source})
 ''')
                             
                 if len(repo.libraries) > 0:

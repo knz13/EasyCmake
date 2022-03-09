@@ -1,7 +1,6 @@
 from dataclasses import dataclass,field
 from typing import List,Dict
 from PyQt5.QtWidgets import *
-from click import option
 
 @dataclass
 class Repository:
